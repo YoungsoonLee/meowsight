@@ -266,8 +266,10 @@ Model pricing is managed in `configs/pricing.json` — no code changes or rebuil
 - [ ] ClickHouse audit writer (request/response logs)
 - [ ] Agent auto-discovery from proxy traffic
 - [ ] REST API for dashboard queries
+- [ ] Web dashboard (cost trends, agent status, audit logs)
 - [ ] API key authentication for tenants
 - [ ] Tenant registration and management
+- [ ] All-in-one `docker compose up` for full local deployment (proxy, api, ingest, worker + infra)
 
 ### v0.3 — Budget & Security
 
@@ -277,6 +279,7 @@ Model pricing is managed in `configs/pricing.json` — no code changes or rebuil
 - [ ] Cost anomaly alerts (webhook / email)
 - [ ] Error rate spike detection
 - [ ] Agent-down detection
+- [ ] `meowctl top` — real-time CLI dashboard (agent traffic, cost, latency, errors)
 - [ ] Content filtering
 - [ ] PII masking in audit logs
 
