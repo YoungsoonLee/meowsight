@@ -1,0 +1,14 @@
+FROM golang:1.26-alpine AS builder
+
+WORKDIR /app
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY . .
+RUN CGO_ENABLED=0 go build -trimpath -o /bin/meowsight-api ./cmd/meowsight-api
+
+FROM scratch
+COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
+COPY --from=builder /bin/meowsight-api /meowsight-api
+EXPOSE 8080
+ENTRYPOINT ["/meowsight-api"]

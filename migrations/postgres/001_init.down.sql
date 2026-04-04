@@ -1,0 +1,5 @@
+DROP TABLE IF EXISTS audit_chain;
+DROP TABLE IF EXISTS budgets;
+DROP TABLE IF EXISTS model_pricing;
+DROP TABLE IF EXISTS agents;
+DROP TABLE IF EXISTS tenants;
