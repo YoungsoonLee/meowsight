@@ -1,5 +1,5 @@
 
-# 🐱 MeowSight — Lightweight AI Gateway
+# 🐱 MeowSight — AI Agent Infrastructure Management Platform
 
 <p align="center">
   <img src="assets/meowsight-logo.png" alt="MeowSight" width="600">
