@@ -24,7 +24,8 @@ test:
 
 ## lint: Run linter
 lint:
-	golangci-lint run ./...
+	$(GO) vet ./...
+	staticcheck ./...
 
 ## fmt: Format code
 fmt:
