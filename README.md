@@ -1,5 +1,5 @@
 
-# 🐱 MeowSight — AI Agent Infrastructure Management Platform
+# 🐱 MeowSight — AI Agent Infrastructure Management
 
 <p align="center">
   <img src="assets/meowsight-logo.png" alt="MeowSight" width="600">
