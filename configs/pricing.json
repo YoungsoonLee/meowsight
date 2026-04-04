@@ -1,0 +1,17 @@
+{
+  "models": {
+    "gpt-4o":                       {"provider": "openai",    "input_per_1k": 0.0025,  "output_per_1k": 0.01},
+    "gpt-4o-mini":                  {"provider": "openai",    "input_per_1k": 0.00015, "output_per_1k": 0.0006},
+    "gpt-4-turbo":                  {"provider": "openai",    "input_per_1k": 0.01,    "output_per_1k": 0.03},
+    "gpt-4":                        {"provider": "openai",    "input_per_1k": 0.03,    "output_per_1k": 0.06},
+    "gpt-3.5-turbo":                {"provider": "openai",    "input_per_1k": 0.0005,  "output_per_1k": 0.0015},
+    "o1":                           {"provider": "openai",    "input_per_1k": 0.015,   "output_per_1k": 0.06},
+    "o1-mini":                      {"provider": "openai",    "input_per_1k": 0.003,   "output_per_1k": 0.012},
+    "o3-mini":                      {"provider": "openai",    "input_per_1k": 0.0011,  "output_per_1k": 0.0044},
+    "claude-opus-4-0":              {"provider": "anthropic", "input_per_1k": 0.015,   "output_per_1k": 0.075},
+    "claude-sonnet-4-0":            {"provider": "anthropic", "input_per_1k": 0.003,   "output_per_1k": 0.015},
+    "claude-3-5-sonnet-20241022":   {"provider": "anthropic", "input_per_1k": 0.003,   "output_per_1k": 0.015},
+    "claude-3-5-haiku-20241022":    {"provider": "anthropic", "input_per_1k": 0.0008,  "output_per_1k": 0.004},
+    "claude-3-opus-20240229":       {"provider": "anthropic", "input_per_1k": 0.015,   "output_per_1k": 0.075}
+  }
+}

@@ -2,31 +2,19 @@
 
 ## Project Overview
 
-MeowSight is an AI agent infrastructure management platform built in Go. It provides monitoring, security, audit trails, cost management, and conflict prevention for AI agents at scale.
+MeowSight is an AI agent infrastructure management platform built in Go. The MVP is an LLM reverse proxy that captures cost, latency, and audit data with zero agent code changes. Advanced features (SDK, conflict prevention, distributed locking) are planned for the future based on user demand.
 
 ## Build & Run
 
 ```bash
-# Initialize module
-go mod init github.com/YoungsoonLee/meowsight
-
-# Build all binaries
-make build
-
-# Run tests
-make test
-
-# Run specific test
-go test ./internal/...
-
-# Local infrastructure
-docker-compose up -d   # PostgreSQL, ClickHouse, Redis, NATS
-
-# Run services
-./bin/meowsight-api
-./bin/meowsight-proxy
-./bin/meowsight-ingest
-./bin/meowsight-worker
+make build               # Build all binaries
+make test                # Run all tests
+make lint                # go vet + staticcheck
+make run-proxy           # Build + run proxy (port 8081)
+make run-api             # Build + run API server (port 8080)
+make infra               # docker compose up -d
+make infra-down          # docker compose down
+make infra-reset         # docker compose down -v (wipes data)
 ```
 
 ## Architecture
@@ -37,52 +25,88 @@ Hexagonal architecture with strict dependency rules:
 handler → app → domain ← adapter
 ```
 
+- `internal/config/` — App configuration, loaded from env vars with defaults
+- `internal/proxy/` — LLM reverse proxy engine (implemented)
 - `internal/domain/` — Pure domain types, zero external dependencies
-- `internal/app/` — Application services, port interfaces (use cases)
-- `internal/adapter/` — Infrastructure adapters implementing ports
-- `internal/proxy/` — LLM reverse proxy engine (provider adapters, token extraction, streaming)
-- `internal/handler/` — Inbound adapters (HTTP, gRPC, ingestion)
+- `internal/app/` — Application services, port interfaces
+- `internal/adapter/` — Infrastructure adapters (postgres, clickhouse, redis, nats, s3)
+- `internal/handler/` — REST API handlers
 - `internal/engine/` — Background processing engines
-- `pkg/sdk/` — Public Go SDK for agent integration
+- `pkg/errors/` — Shared error types
+- `configs/` — Runtime config files (pricing.json)
 - `cmd/` — Application entry points
 
 ## Code Conventions
 
 - **Language**: All code comments, documentation, commit messages in English
-- **Go version**: 1.22+
+- **Go version**: 1.26+
 - **Error handling**: Wrap errors with context using `fmt.Errorf("operation: %w", err)`
 - **Logging**: Use `log/slog` (stdlib structured logging)
 - **Naming**: Follow standard Go conventions (exported = PascalCase, unexported = camelCase)
-- **Tests**: Table-driven tests, use `testify` for assertions
+- **Tests**: Table-driven tests, stdlib `testing` package
 - **Context**: Every function touching data takes `context.Context` as first argument
-- **Tenant isolation**: All repository methods must include `tenant_id` in queries — never skip this
+- **Tenant isolation**: All repository methods must include `tenant_id` in queries
+- **No hardcoded URLs/values**: Provider URLs via env vars, pricing via `configs/pricing.json`
 
 ## Key Binaries
 
 | Binary | Purpose |
 |---|---|
-| `meowsight-api` | REST + gRPC API server |
-| `meowsight-proxy` | LLM reverse proxy — zero-code agent integration (MVP killer feature) |
-| `meowsight-ingest` | High-throughput event ingestion worker |
-| `meowsight-worker` | Background job processor (alerting, archiving, cost aggregation) |
-| `meowctl` | CLI tool for operators |
+| `meowsight-proxy` | LLM reverse proxy (port 8081) — the core product |
+| `meowsight-api` | REST API server (port 8080) |
+| `meowsight-ingest` | Event ingestion worker |
+| `meowsight-worker` | Background job processor |
+| `meowctl` | CLI tool |
 
 ## Tech Stack
 
-- **Database**: PostgreSQL (config), ClickHouse (metrics/audit), Redis (cache/locks)
+- **Database**: PostgreSQL 16 (config), ClickHouse 24 (metrics/audit), Redis 7 (cache)
 - **Message Queue**: NATS JetStream
 - **Object Storage**: S3/MinIO (audit archive)
-- **Protobuf**: Managed with `buf.build`
-- **HTTP Router**: `chi/v5`
-- **gRPC**: `google.golang.org/grpc`
+- **CI**: GitHub Actions (go vet + staticcheck)
+
+## LLM Proxy (Implemented)
+
+The proxy is the core product. Key files:
+
+- `internal/proxy/router.go` — Routes `/openai/`, `/anthropic/` to provider handlers
+- `internal/proxy/provider/openai.go` — OpenAI reverse proxy (non-streaming + SSE)
+- `internal/proxy/provider/anthropic.go` — Anthropic reverse proxy (non-streaming + SSE)
+- `internal/proxy/pricing.go` — PricingTable, loads from `configs/pricing.json`
+- `internal/proxy/tagger.go` — Extracts tenant/agent ID from `X-Meowsight-*` headers
+- `internal/proxy/event.go` — EventEmitter interface (currently LogEmitter, future: NATS)
+
+### How providers work
+
+- Provider name, prefix, and base URL are injected at construction (not hardcoded)
+- Base URLs configurable via env vars (`OPENAI_BASE_URL`, `ANTHROPIC_BASE_URL`)
+- Same provider type can be registered multiple times with different names
+- OpenAI streaming: `stream_options.include_usage=true` is auto-injected
+- Anthropic streaming: parses `message_start` and `message_delta` events for token counts
+
+### Configuration (env vars)
+
+| Variable | Default |
+|---|---|
+| `PROXY_PORT` | `8081` |
+| `HTTP_PORT` | `8080` |
+| `OPENAI_BASE_URL` | `https://api.openai.com` |
+| `ANTHROPIC_BASE_URL` | `https://api.anthropic.com` |
+| `PRICING_FILE` | `configs/pricing.json` |
+| `POSTGRES_*` | `localhost:5432/meowsight` |
+| `CLICKHOUSE_*` | `localhost:9000/meowsight` |
+| `REDIS_ADDR` | `localhost:6379` |
+| `NATS_URL` | `nats://localhost:4222` |
+
+## Database Migrations
+
+- `migrations/postgres/001_init.up.sql` — tenants, agents, budgets, model_pricing, audit_chain
+- `migrations/clickhouse/001_init.up.sql` — metrics, audit_log tables
 
 ## Important Patterns
 
-- **2-tier agent integration**: Zero-code (LLM Proxy) → Full-code (SDK/gRPC); OTel as optional ingestion format
-- LLM Proxy is the MVP killer feature — agents change one env var, covers 4/5 domains, no code modifications
-- Phase 1 is Proxy-only; SDK comes in Phase 3 for conflict prevention
-- Micro-batching for event ingestion (flush every 100ms or 1000 events)
-- Redis Redlock for distributed locking
-- SHA-256 chain hashing for audit trail tamper evidence
-- gRPC bidirectional streaming for agent communication
-- Feature gating via tenant plan loaded from Redis cache
+- LLM Proxy is the core product — agents change one env var, no code modifications
+- External pricing table (`configs/pricing.json`) — no rebuild needed for price changes
+- Configurable provider base URLs — supports Azure, local mocks, custom endpoints
+- EventEmitter interface decouples proxy from event pipeline (swap LogEmitter → NATS)
+- Future: SDK/agent integration for distributed locking, conflict prevention (not yet implemented)

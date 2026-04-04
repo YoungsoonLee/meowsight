@@ -15,10 +15,10 @@
 </p>
 
 <p align="center">
-  <a href="#tier-1-llm-proxy-zero-code--mvp-killer-feature">Quick Start</a> &bull;
+  <a href="#how-it-works">How It Works</a> &bull;
   <a href="#core-features">Features</a> &bull;
-  <a href="#mvp-roadmap">Roadmap</a> &bull;
-  <a href="#getting-started">Getting Started</a>
+  <a href="#getting-started">Getting Started</a> &bull;
+  <a href="#roadmap">Roadmap</a>
 </p>
 
 ---
@@ -27,50 +27,9 @@
 
 ---
 
-## Core Features
+## How It Works
 
-| Domain | Description |
-|---|---|
-| **Agent Monitoring** | Agent health, performance metrics, alerting |
-| **Security** | Authentication/authorization, threat detection, policy-based access control |
-| **Audit Trail** | Full agent action logging, compliance, tamper-proof records |
-| **Cost Management** | Token usage tracking, budget limits, cost allocation |
-| **Conflict Prevention** | Distributed locks, intent-based conflict detection, agent coordination |
-
----
-
-## Agent Integration — 2-Tier Strategy
-
-Existing agents should be monitorable **without code changes**. MeowSight provides two integration tiers:
-
-```
-┌───────────────────────────────────────────────────────────┐
-│                    Integration Tiers                      │
-├─────────────────────────────┬─────────────────────────────┤
-│  Tier 1: LLM Proxy          │  Tier 2: SDK                │
-│  (Zero-Code)                │  (Full-Code)                │
-├─────────────────────────────┼─────────────────────────────┤
-│  Change: env var only       │  Change: import SDK         │
-│                             │                             │
-│  ✅ Token usage & cost      │  ✅ Everything in Tier 1    │
-│  ✅ Latency & error rates   │  ✅ Distributed locks       │
-│  ✅ Audit trail (LLM calls) │  ✅ Intent-based conflict   │
-│  ✅ Budget enforcement      │  ✅ Server push directives  │
-│  ✅ Model/provider control  │  ✅ Non-LLM action tracking │
-│  ✅ Per-agent attribution   │  ✅ Custom metrics          │
-│                             │                             │
-│  Effort: ★☆☆☆☆              │  Effort: ★★★☆☆              │
-│  Covers: 4/5 domains        │  Covers: 5/5 domains        │
-└─────────────────────────────┴─────────────────────────────┘
-
-  * OTel is supported as an ingestion format, not a separate tier.
-    Teams already using OpenTelemetry can export to MeowSight's
-    OTLP endpoint without adopting the SDK.
-```
-
-### Tier 1: LLM Proxy (Zero-Code) — MVP Killer Feature
-
-A reverse proxy that sits between agents and LLM providers. Agents just change one environment variable:
+MeowSight is an **LLM reverse proxy** that sits between your AI agents and LLM providers. Agents just change one environment variable — no code changes required:
 
 ```bash
 # Before — agent talks directly to LLM provider
@@ -83,84 +42,91 @@ ANTHROPIC_BASE_URL=https://proxy.meowsight.io/anthropic/v1
 ```
 
 The proxy transparently forwards requests while capturing:
-- Token usage and cost per request
-- Response latency and error rates
-- Full request/response audit trail (configurable)
-- Model and provider breakdown
-- Per-agent attribution (via API key or `X-MeowSight-Agent` header)
 
-**Supported providers:** OpenAI, Anthropic, Google Gemini, Azure OpenAI, AWS Bedrock, Cohere, Mistral, and any OpenAI-compatible API.
+- **Token usage and cost** per request (calculated from `configs/pricing.json`)
+- **Response latency and error rates**
+- **Full request/response audit trail** (configurable)
+- **Model and provider breakdown**
+- **Per-agent attribution** (via `X-Meowsight-Agent` / `X-Meowsight-Tenant` headers)
 
-**What Tier 1 covers:**
+```
+AI Agents (millions)
+    │
+    │  LLM API calls (OpenAI, Anthropic, ...)
+    ▼
+┌────────────────────────────────────────────┐
+│         MeowSight LLM Proxy                │
+│         (meowsight-proxy)                  │
+│                                            │
+│  ┌─────────────┐  ┌──────────────────┐     │
+│  │ OpenAI      │  │ Anthropic        │     │
+│  │ Provider    │  │ Provider         │     │
+│  │ (+ Azure,   │  │                  │     │
+│  │  compatible)│  │                  │     │
+│  └──────┬──────┘  └────────┬─────────┘     │
+│         │                  │               │
+│         └────────┬─────────┘               │
+│                  ▼                         │
+│     Extract: tokens, cost, latency         │
+│     Emit: RequestEvent                     │
+└──────────────────┬─────────────────────────┘
+                   │
+                   │  NATS JetStream
+                   ▼
+┌──────────────────────────────────────────┐
+│          Event Bus (NATS JetStream)      │
+│          subjects: events.{tenant}.{type}│
+└──┬──────────┬──────────┬─────────────────┘
+   │          │          │
+   ▼          ▼          ▼
+ Metric     Audit      Cost
+ Writer     Writer     Aggregator
+   │          │          │
+   ▼          ▼          ▼
+ClickH.   ClickH.     PostgreSQL
+          + S3
+```
 
-| Domain | Proxy Coverage |
-|---|---|
-| Monitoring | ✅ Latency, error rates, request volume, agent liveness via call patterns |
-| Security | ✅ Model/provider allowlists, rate limiting, content filtering |
-| Audit Trail | ✅ Full LLM request/response logging |
-| Cost Management | ✅ Token counting, cost calculation, budget enforcement (block requests on overage) |
-| Conflict Prevention | ❌ Requires SDK (Tier 2) |
+**Currently supported providers:** OpenAI, Anthropic (implemented). Planned: Google Gemini, Azure OpenAI, AWS Bedrock, and any OpenAI-compatible API.
 
-### Tier 2: SDK / gRPC (Full-Code)
+---
 
-For advanced features that require agent-side integration: distributed locking, intent-based conflict detection, non-LLM action tracking, and server-push directives. See [SDK Usage Example](#sdk-usage-example) below.
+## Core Features
 
-The natural adoption path: start with Tier 1 (zero friction), then upgrade to Tier 2 when conflict prevention or deeper observability is needed.
+| Domain | Description | How |
+|---|---|---|
+| **Agent Monitoring** | Latency, error rates, request volume, agent liveness | Extracted from proxy traffic |
+| **Security** | Model/provider allowlists, rate limiting, content filtering | Enforced at proxy layer |
+| **Audit Trail** | Full LLM request/response logging, tamper-proof records | Stored in ClickHouse + S3 |
+| **Cost Management** | Token counting, cost calculation, budget enforcement | Pricing table + real-time aggregation |
 
 ---
 
 ## System Architecture
 
-```
-AI Agents (millions)
-    │
-    ├── Tier 1: LLM API calls routed through proxy (most agents)
-    └── Tier 2: gRPC streaming via SDK (advanced agents)
-    │
-    ▼
-┌────────────────────────────────────────────────────┐
-│              MeowSight Ingestion                   │
-│                                                    │
-│  ┌──────────────────┐      ┌───────────────────┐   │
-│  │ LLM Proxy        │      │ gRPC/HTTP Ingest  │   │
-│  │ (meowsight-proxy)│      │ (meowsight-ingest)│   │
-│  │                  │      │                   │   │
-│  │ Intercepts LLM   │      │ SDK events +      │   │
-│  │ traffic, extracts│      │ OTel (optional)   │   │
-│  │ cost/latency/    │      │                   │   │
-│  │ audit data       │      │                   │   │
-│  └────────┬─────────┘      └─────────┬─────────┘   │
-│           │                          │             │
-│           └──────────┬───────────────┘             │
-│                      ▼                             │
-│            Unified Event Pipeline                  │
-└──────────────────────┬─────────────────────────────┘
-                       │
-                       │  NATS JetStream
-                       ▼
-┌──────────────────────────────────────────────────┐
-│              Event Bus (NATS JetStream)          │
-│              subjects: events.{tenant}.{type}    │
-└──┬──────────┬──────────┬──────────┬──────────────┘
-   │          │          │          │
-   ▼          ▼          ▼          ▼
- Metric     Audit      Cost     Conflict
- Writer     Writer     Agg.     Detector
-   │          │          │          │
-   ▼          ▼          ▼          ▼
-ClickH.   ClickH.     PG      Redis+PG
-          + S3
-```
-
 ### Data Flow
 
-1. **Tier 1 (most agents):** LLM API calls are routed through the MeowSight proxy — cost, latency, and audit data are captured transparently with zero agent code changes
-2. **Tier 2 (advanced agents):** SDK-integrated agents connect via gRPC bidirectional streaming for full feature access including conflict prevention
-3. **OTel (optional):** Teams already using OpenTelemetry can export to MeowSight's OTLP endpoint via the ingest service
-4. Both tiers feed into a unified event pipeline, then publish to NATS
-5. Domain-specific consumers process events and write to appropriate storage
-6. The proxy can enforce budgets by rejecting requests when spend exceeds limits
-7. For SDK-connected agents, the server can additionally push policy updates, PAUSE directives, and kill signals via the return stream
+1. Agents route LLM API calls through the MeowSight proxy — cost, latency, and audit data are captured transparently
+2. The proxy emits `RequestEvent`s to NATS JetStream
+3. Domain-specific consumers process events and write to appropriate storage
+4. The proxy can enforce budgets by rejecting requests when spend exceeds limits
+
+### Storage Strategy
+
+| Store | Technology | Purpose | Retention |
+|---|---|---|---|
+| Config DB | PostgreSQL | Tenants, agents, policies, budgets | Permanent |
+| Metrics | ClickHouse | Time-series metrics | 90 days hot, 1 year cold |
+| Audit Hot | ClickHouse | Recent audit logs | 30 days |
+| Audit Cold | S3 (Parquet) | Long-term audit logs | Up to 7 years |
+| Cache | Redis Cluster | Real-time status, rate limits | Ephemeral |
+| Event Bus | NATS JetStream | Inter-service events | 72h replay window |
+
+### Multi-Tenant Architecture
+
+- **PostgreSQL:** Row-Level Security (RLS) + `tenant_id` column
+- **ClickHouse:** Partitioned by `(tenant_id, toYYYYMM(timestamp))`
+- **NATS:** Subject hierarchy `events.{tenant_id}.{event_type}`
 
 ---
 
@@ -169,355 +135,173 @@ ClickH.   ClickH.     PG      Redis+PG
 | Layer | Technology | Rationale |
 |---|---|---|
 | Language | **Go** | High performance, concurrency, single binary deployment |
-| HTTP | `chi/v5` | Lightweight, composable middleware |
-| gRPC | `google.golang.org/grpc` | High-performance protocol for agent communication |
+| HTTP | `net/http` + `chi/v5` | Lightweight, composable middleware |
 | PostgreSQL | `pgx/v5` | Config, tenants, policies, budgets |
 | ClickHouse | `clickhouse-go/v2` | Metrics + audit logs (high-volume time-series) |
-| Redis | `go-redis/v9` | Cache, distributed locks, rate limiting |
+| Redis | `go-redis/v9` | Cache, rate limiting |
 | Message Queue | **NATS JetStream** | Low latency, simple operations, at-least-once delivery |
 | Object Storage | S3 / MinIO | Long-term audit log archive (Parquet) |
-| Observability | OpenTelemetry + Prometheus | Self-monitoring |
 | Deployment | Kubernetes + Helm | Production orchestration |
 
 ---
 
 ## Project Structure
 
-Based on hexagonal architecture.
-
 ```
 meowsight/
-├── cmd/                              # Application entry points
-│   ├── meowsight-api/                # REST + gRPC API server
-│   │   └── main.go
-│   ├── meowsight-proxy/              # LLM reverse proxy (zero-code integration)
-│   │   └── main.go
-│   ├── meowsight-ingest/             # High-throughput event ingestion worker
-│   │   └── main.go
+├── cmd/
+│   ├── meowsight-api/                # REST API server
+│   ├── meowsight-proxy/              # LLM reverse proxy
+│   ├── meowsight-ingest/             # Event ingestion worker
 │   ├── meowsight-worker/             # Background job processor
-│   │   └── main.go
 │   └── meowctl/                      # CLI tool
-│       └── main.go
 │
-├── internal/                         # Private application code
-│   ├── domain/                       # Pure domain types (no external dependencies)
-│   │   ├── agent/                    # Agent, AgentGroup, AgentStatus
-│   │   ├── monitoring/               # Metric, AlertRule, Alert
-│   │   ├── security/                 # Policy, Permission, ThreatEvent
-│   │   ├── audit/                    # AuditRecord, AuditQuery
-│   │   ├── cost/                     # TokenUsage, Budget, CostAllocation
-│   │   ├── conflict/                 # ResourceLock, ConflictEvent
-│   │   └── tenant/                   # Tenant, Workspace, Plan
-│   │
-│   ├── app/                          # Application services (use cases + ports)
-│   │   ├── monitoring/               # service.go + ports.go
-│   │   ├── security/
-│   │   ├── audit/
-│   │   ├── cost/
-│   │   ├── conflict/
-│   │   └── tenant/
-│   │
-│   ├── adapter/                      # Infrastructure adapters (port implementations)
-│   │   ├── postgres/                 # PostgreSQL repositories + migrations
-│   │   ├── clickhouse/               # ClickHouse repositories
-│   │   ├── redis/                    # Locks, cache, rate limiting
-│   │   ├── nats/                     # Publisher, Subscriber
-│   │   ├── s3/                       # Audit log archive
-│   │   └── notification/             # Slack, PagerDuty, Webhook
-│   │
-│   ├── proxy/                        # LLM proxy engine
+├── configs/
+│   └── pricing.json                  # Model pricing table (edit without rebuild)
+│
+├── internal/
+│   ├── config/                       # App configuration (env vars)
+│   ├── proxy/                        # LLM proxy engine ✅ Implemented
 │   │   ├── router.go                 # Route requests to correct LLM provider
-│   │   ├── provider/                 # Per-provider adapters
-│   │   │   ├── openai.go             # OpenAI / OpenAI-compatible
-│   │   │   ├── anthropic.go          # Anthropic Claude
-│   │   │   ├── google.go             # Google Gemini
-│   │   │   └── bedrock.go            # AWS Bedrock
-│   │   ├── interceptor.go            # Extract tokens, cost, latency from responses
-│   │   ├── streamer.go               # SSE/streaming response handling
-│   │   └── tagger.go                 # Agent attribution from API key / headers
-│   │
-│   ├── handler/                      # Inbound adapters
-│   │   ├── httpapi/                  # REST API handlers
-│   │   ├── grpcapi/                  # gRPC services (agent SDK facing)
-│   │   └── ingest/                   # High-throughput event ingestion handler
-│   │
-│   ├── engine/                       # Background processing engines
-│   │   ├── alerting/                 # Alert rule evaluation
-│   │   ├── costengine/               # Cost aggregation and budget enforcement
-│   │   ├── conflictdetector/         # Conflict detection and resolution
-│   │   ├── threatdetector/           # Anomalous behavior detection
-│   │   └── archiver/                 # Audit log S3 archiver
-│   │
-│   └── config/                       # App configuration
+│   │   ├── event.go                  # RequestEvent struct + EventEmitter interface
+│   │   ├── event_logger.go           # Dev-mode event logger (slog)
+│   │   ├── pricing.go                # PricingTable — loads from configs/pricing.json
+│   │   ├── tagger.go                 # Agent attribution from X-Meowsight-* headers
+│   │   └── provider/
+│   │       ├── openai.go             # OpenAI / OpenAI-compatible (streaming + non-streaming)
+│   │       └── anthropic.go          # Anthropic Claude (streaming + non-streaming)
+│   ├── domain/                       # Pure domain types
+│   ├── app/                          # Application services (use cases + ports)
+│   ├── adapter/                      # Infrastructure adapters (postgres, clickhouse, redis, nats, s3)
+│   ├── handler/                      # REST API handlers
+│   └── engine/                       # Background engines (alerting, cost, archiver)
 │
-├── pkg/                              # Public packages
-│   ├── sdk/                          # MeowSight Go SDK
-│   ├── proto/                        # Generated protobuf code
-│   ├── middleware/                    # Shared middleware
+├── pkg/
 │   └── errors/                       # Shared error types
 │
-├── api/                              # API specifications
-│   ├── openapi/                      # OpenAPI 3.1 spec
-│   └── proto/                        # .proto source files
+├── migrations/
+│   ├── postgres/001_init.up.sql      # Tenants, agents, budgets, model_pricing
+│   └── clickhouse/001_init.up.sql    # Metrics + audit_log tables
 │
-├── deploy/                           # Deployment manifests
-│   ├── kubernetes/
-│   ├── helm/
-│   └── docker/
-│
-├── migrations/                       # DB migrations
-│   ├── postgres/
-│   └── clickhouse/
-│
-├── scripts/
-├── docs/
-├── go.mod
-├── go.sum
+├── deploy/docker/                    # Multi-stage Dockerfiles
+├── .github/workflows/ci.yml         # CI: test + lint
+├── docker-compose.yml               # Local dev: PG, ClickHouse, Redis, NATS, MinIO
 ├── Makefile
-└── README.md
+└── go.mod
 ```
-
-### Dependency Rule
-
-```
-handler → app → domain ← adapter
-```
-
-- `domain`: No external dependencies (pure business logic)
-- `app`: Imports only domain, defines port interfaces
-- `adapter`: Imports domain + external drivers, implements port interfaces
-- `handler`: Calls app services
 
 ---
 
-## Domain Details
+## Getting Started
 
-### 1. Agent Monitoring
+```bash
+# Start local infrastructure
+docker-compose up -d  # PostgreSQL, ClickHouse, Redis, NATS, MinIO
 
-**Core Entities:**
-- `Agent` — id, name, group, tenant, status (online/degraded/offline), last_heartbeat
-- `Metric` — agent_id, timestamp, metric_name, value, labels
-- `AlertRule` — condition expression (PromQL-like), threshold, duration, notification channels
-- `Alert` — status (firing/resolved), fired_at, resolved_at
+# Build all binaries
+make build
 
-**How It Works:**
-- Heartbeat → Redis (real-time status) + ClickHouse (history)
-- Agent offline detection: Redis TTL expiry → NATS event → alert
-- Alert engine: queries ClickHouse every 15s, fires notifications when conditions are met
+# Run tests
+make test
 
-**Alert Condition DSL:**
-```
-avg(agent_latency{group="order-processors"}) > 500 for 5m
-count(agent_status == "offline") / count(agent_status) > 0.1 for 2m
+# Run the LLM proxy (default port 8081)
+./bin/meowsight-proxy
+
+# Run the API server (default port 8080)
+./bin/meowsight-api
 ```
 
-### 2. Security
+### Configuration
 
-**Authentication:**
-- Users: JWT (self-issued or OIDC/SAML federation)
-- Agents: API keys (`ms_live_xxx`), scoped permissions, stored as SHA-256 hash
+All configuration is via environment variables with sensible defaults:
 
-**Authorization:**
-- RBAC: tenant → workspace → agent_group (3 levels)
-- Per-agent policies: "Agent X may only call OpenAI API"
-- Policies pushed to agents via gRPC HeartbeatResponse
-
-**Threat Detection:**
-- Event volume spikes (runaway agent)
-- Out-of-scope action patterns
-- Cost anomalies (token usage beyond 3σ)
-
-### 3. Audit Trail
-
-**Storage Tiering:**
-1. Events → NATS → ClickHouse (30-day hot storage)
-2. Daily archiver: export to S3 as Parquet (up to 7-year retention)
-3. Queries: hot storage first, fan-out to S3 for extended time ranges
-
-**Tamper Prevention:**
-- No `ALTER DELETE` permission for ClickHouse app user
-- Per-batch SHA-256 chain hash (previous batch hash + current content hash) → stored in PostgreSQL
-
-### 4. Cost Management
-
-**Core Entities:**
-- `TokenUsage` — agent_id, model, provider, input/output tokens, estimated_cost_usd
-- `Budget` — scope (tenant/workspace/group/agent), period (daily/weekly/monthly), limit_usd
-
-**Budget Enforcement:**
-1. Agent reports usage → cost aggregator updates real-time totals
-2. Limit exceeded → NATS `budget.exceeded` event published
-3. gRPC server sends `PAUSE` directive via bidirectional stream
-
-**Cost Calculation:**
-- `model_pricing` table (model, provider, input/output unit price, effective_date)
-- Server-side calculation or pre-calculated cost from SDK
-
-### 5. Conflict Prevention
-
-**Distributed Locking:**
-- Redis + Redlock algorithm
-- Hierarchical resource keys: `orders/customer-456`, `database/table-users/row-123`
-- Mandatory TTL (max 5 min), heartbeat-based extension, auto-expiry on crash
-
-**Intent-Based Conflict Detection:**
-- Agents declare intended actions before execution: "I intend to modify customer 456's order"
-- Conflict matching engine cross-references pending intents
-- Resolution strategies: mutex (one wins), queue (FIFO), merge (both proceed), escalate (notify human)
-
----
-
-## API Design
-
-### REST API (Dashboard / Management)
-
-| Endpoint | Method | Description |
+| Variable | Default | Description |
 |---|---|---|
-| `/api/v1/agents` | GET/POST | List/register agents |
-| `/api/v1/agents/{id}/status` | GET | Current agent status |
-| `/api/v1/agents/{id}/metrics` | GET | Query metrics (time range) |
-| `/api/v1/alerts` | GET/POST/PUT | Manage alert rules |
-| `/api/v1/audit/search` | POST | Search audit logs |
-| `/api/v1/cost/usage` | GET | Usage summary |
-| `/api/v1/cost/budgets` | GET/POST/PUT | Budget management |
-| `/api/v1/policies` | CRUD | Security policy management |
-| `/api/v1/conflicts` | GET | Active conflicts |
-| `/api/v1/locks` | GET/POST/DELETE | Resource lock management |
+| `PROXY_PORT` | `8081` | LLM proxy listen port |
+| `HTTP_PORT` | `8080` | API server listen port |
+| `OPENAI_BASE_URL` | `https://api.openai.com` | OpenAI upstream URL |
+| `ANTHROPIC_BASE_URL` | `https://api.anthropic.com` | Anthropic upstream URL |
+| `PRICING_FILE` | `configs/pricing.json` | Path to model pricing table |
+| `POSTGRES_HOST` | `localhost` | PostgreSQL host |
+| `CLICKHOUSE_HOST` | `localhost` | ClickHouse host |
+| `REDIS_ADDR` | `localhost:6379` | Redis address |
+| `NATS_URL` | `nats://localhost:4222` | NATS server URL |
 
-### gRPC API (Agent-Facing)
+### Model Pricing
 
-```protobuf
-service AgentIngestService {
-  rpc EventStream(stream AgentEvent) returns (stream ServerDirective);
-  rpc IngestBatch(EventBatch) returns (IngestResponse);
-}
+Model pricing is managed in `configs/pricing.json` — no code changes or rebuilds needed:
 
-service AgentControlService {
-  rpc Heartbeat(HeartbeatRequest) returns (HeartbeatResponse);
-  rpc AcquireLock(LockRequest) returns (LockResponse);
-  rpc ReleaseLock(ReleaseRequest) returns (ReleaseResponse);
-  rpc CheckConflict(ConflictCheckRequest) returns (ConflictCheckResponse);
+```json
+{
+  "models": {
+    "gpt-4o": {"provider": "openai", "input_per_1k": 0.0025, "output_per_1k": 0.01},
+    "claude-sonnet-4-0": {"provider": "anthropic", "input_per_1k": 0.003, "output_per_1k": 0.015}
+  }
 }
 ```
 
 ---
 
-## SDK Usage Example
+## Roadmap
 
-```go
-import "github.com/YoungsoonLee/meowsight/pkg/sdk"
+### v0.1 — LLM Proxy Core
 
-ms, _ := meowsight.New(
-    meowsight.WithAPIKey("ms_live_xxx"),
-    meowsight.WithAgentID("order-processor-1"),
-    meowsight.WithAgentGroup("order-processors"),
-)
-defer ms.Close()
+- [x] Project scaffolding, Go module, `Makefile`, `.gitignore` ✅
+- [x] Docker Compose (PostgreSQL, ClickHouse, Redis, NATS, MinIO) ✅
+- [x] CI pipeline (`go vet` + `staticcheck`) ✅
+- [x] Multi-stage Dockerfiles (api, proxy, ingest, worker) ✅
+- [x] DB migrations (PostgreSQL + ClickHouse) ✅
+- [x] OpenAI reverse proxy (non-streaming + SSE streaming) ✅
+- [x] Anthropic reverse proxy (non-streaming + SSE streaming) ✅
+- [x] Token/cost extraction from LLM responses ✅
+- [x] External pricing table (`configs/pricing.json`) ✅
+- [x] Configurable provider base URLs via env vars ✅
+- [x] Agent attribution via `X-Meowsight-*` headers ✅
+- [x] Auto-inject `stream_options.include_usage` for OpenAI streaming ✅
 
-// Automatic heartbeats start (every 10s)
+### v0.2 — Event Pipeline & Dashboard
 
-// Record an action
-ms.RecordAction("process_order", map[string]string{"order_id": "123"})
+- [ ] Event emission to NATS JetStream
+- [ ] ClickHouse metric writer (latency, tokens, errors)
+- [ ] ClickHouse audit writer (request/response logs)
+- [ ] Agent auto-discovery from proxy traffic
+- [ ] REST API for dashboard queries
+- [ ] API key authentication for tenants
+- [ ] Tenant registration and management
 
-// Report cost
-ms.ReportUsage(meowsight.Usage{
-    Model: "claude-4", InputTokens: 500, OutputTokens: 200,
-})
+### v0.3 — Budget & Security
 
-// Acquire a distributed lock
-lock, _ := ms.AcquireLock("orders/customer-456", 30*time.Second)
-defer lock.Release()
-```
+- [ ] Budget enforcement (reject requests on overage)
+- [ ] Model/provider allowlists per tenant
+- [ ] Per-agent cost dashboard
+- [ ] Cost anomaly alerts (webhook / email)
+- [ ] Error rate spike detection
+- [ ] Agent-down detection
+- [ ] Content filtering
+- [ ] PII masking in audit logs
 
----
+### v0.4 — More Providers & Hardening
 
-## Multi-Tenant Architecture
+- [ ] Google Gemini provider
+- [ ] Azure OpenAI provider
+- [ ] AWS Bedrock provider
+- [ ] Any OpenAI-compatible API support
+- [ ] RBAC for dashboard
+- [ ] Threat detection v1 (runaway agent / cost spike)
+- [ ] Audit archiver (S3 Parquet export)
+- [ ] Multi-tenant hardening (RLS, per-tenant rate limiting)
 
-```
-Request → Middleware(TenantContext)
-            │
-            ├── Extract tenant_id from API key / JWT
-            ├── Load tenant plan from Redis (cached)
-            ├── Inject into context.Context
-            └── Apply per-plan rate limits
+### v1.0 — SaaS Launch
 
-All repository methods extract tenant_id from context and include it in every query.
-```
+- [ ] Stripe billing integration (subscriptions, usage-based overage)
+- [ ] Plan enforcement and usage metering
+- [ ] Kubernetes Helm charts + HPA
+- [ ] Production deployment
+- [ ] Documentation site
+- [ ] Onboarding flow
+- [ ] `meowctl doctor` — self-diagnosis tool
 
-- **PostgreSQL:** Row-Level Security (RLS) + `tenant_id` column
-- **ClickHouse:** Partitioned by `(tenant_id, toYYYYMM(timestamp))`
-- **NATS:** Subject hierarchy `events.{tenant_id}.{event_type}`
-
----
-
-## Storage Strategy
-
-| Store | Technology | Purpose | Retention |
-|---|---|---|---|
-| Config DB | PostgreSQL | Tenants, agents, policies, budgets | Permanent |
-| Metrics | ClickHouse | Time-series metrics | 90 days hot, 1 year cold |
-| Audit Hot | ClickHouse | Recent audit logs | 30 days |
-| Audit Cold | S3 (Parquet) | Long-term audit logs | Up to 7 years |
-| Cache/Lock | Redis Cluster | Real-time status, locks, rate limits | Ephemeral |
-| Event Bus | NATS JetStream | Inter-service events | 72h replay window |
-
----
-
-## MVP Roadmap
-
-### Phase 1: LLM Proxy MVP (Weeks 1-8)
-
-The proxy alone delivers 4/5 core domains. Ship this first, get users, then expand.
-
-| Week | Deliverable |
-|---|---|
-| 1-2 | Project scaffolding, Go module, Docker Compose (PG, ClickHouse, Redis, NATS), CI setup |
-| 3-4 | **LLM Proxy core**: reverse proxy for OpenAI + Anthropic, request forwarding, SSE streaming support, token/cost extraction from responses |
-| 5-6 | **Proxy → pipeline**: event emission to NATS, ClickHouse metric/audit writers, agent auto-discovery (identify agents by API key or `X-MeowSight-Agent` header) |
-| 7-8 | **Proxy features**: budget enforcement (reject on overage), model/provider allowlists, per-agent cost dashboard, API key auth, tenant registration, REST API for dashboard queries |
-
-**Phase 1 outcome:** A working product where users change one env var and immediately get cost tracking, latency monitoring, audit logs, and budget enforcement.
-
-### Phase 2: Proxy Hardening + Additional Providers (Weeks 9-14)
-
-| Week | Deliverable |
-|---|---|
-| 9-10 | Additional providers: Google Gemini, Azure OpenAI, AWS Bedrock, OpenAI-compatible APIs |
-| 11-12 | Alert engine: cost anomaly alerts, error rate spikes, agent-down detection, webhook/email notifications |
-| 13-14 | Security: content filtering, PII masking in audit logs, RBAC for dashboard, threat detection v1 (runaway agent / cost spike) |
-
-### Phase 3: SDK + Conflict Prevention (Weeks 15-22)
-
-| Week | Deliverable |
-|---|---|
-| 15-16 | Go SDK: gRPC client, heartbeat, event reporting, action wrapper |
-| 17-18 | Distributed locking: Redis Redlock, lock API, SDK lock client |
-| 19-20 | Intent-based conflict detection, resolution strategies (mutex, queue) |
-| 21-22 | Audit archiver (S3 Parquet), advanced threat detection, Python/TypeScript SDK v1 |
-
-### Phase 4: SaaS Launch (Weeks 23-30)
-
-| Week | Deliverable |
-|---|---|
-| 23-24 | Multi-tenant hardening: RLS, per-tenant rate limiting, plan enforcement, usage metering |
-| 25-26 | Stripe billing integration: subscriptions, usage-based overage billing |
-| 27-28 | K8s deployment: Helm charts, HPA, production clusters, staging environment |
-| 29-30 | Public launch: docs site, SDK publishing, marketing site, onboarding flow |
-
----
-
-## Scalability Considerations
-
-**At 1 million agents (heartbeat every 10s = 100K events/sec):**
-- Ingestion layer: stateless, horizontally scalable
-- NATS JetStream: 3-node cluster (tested to 10M msg/sec)
-- ClickHouse: batch inserts of 10K rows/batch
-
-**At 10 million agents (1M events/sec):**
-- NATS stream sharding by tenant hash
-- ClickHouse cluster sharding by tenant_id
-- 50-100 ingestion pods
-- Redis cluster 6+ nodes
+> **Future:** SDK and agent-side integration (Go, Python, TypeScript) for distributed locking, intent-based conflict prevention, and server-push directives — added based on user demand after proxy MVP is validated.
 
 ---
 
@@ -525,43 +309,27 @@ The proxy alone delivers 4/5 core domains. Ship this first, get users, then expa
 
 | Decision | Rationale |
 |---|---|
-| LLM Proxy as MVP killer feature | Zero-code integration (env var change only) maximizes adoption; covers 4/5 domains without agent modifications |
-| 2-tier integration (Proxy → SDK) | Proxy for zero-friction onboarding, SDK only for conflict prevention; OTel supported as ingestion format, not a separate tier |
-| Separate ingestion and API binaries | Independent scaling; dashboard queries don't starve heartbeat processing |
-| ClickHouse for both metrics and audit | Reduced operational complexity, same query patterns, splittable later |
+| LLM Proxy as MVP | Zero-code integration (env var change only) maximizes adoption; covers monitoring, security, audit, and cost without agent modifications |
+| External pricing table (JSON) | Model prices change frequently; JSON file avoids code changes and rebuilds, upgradeable to DB later |
+| Configurable provider base URLs | Supports Azure OpenAI, local mocks, and custom endpoints via env vars without code changes |
+| Separate proxy and API binaries | Independent scaling; dashboard queries don't starve proxy traffic |
+| ClickHouse for metrics and audit | Reduced operational complexity, same query patterns, splittable later |
 | NATS over Kafka | Lower latency, simpler operations, swappable via adapter pattern |
-| Redis distributed locks over etcd | Already in stack, sufficient for advisory locks, etcd can be added later |
-| gRPC bidirectional streaming | Enables server-to-agent push, natural backpressure, no polling needed |
 
 ---
 
-## Getting Started
+## Why "MeowSight"?
 
-```bash
-# Initialize the project
-go mod init github.com/YoungsoonLee/meowsight
+Cats see in the dark. MeowSight gives you visibility into the invisible — what your AI agents are doing, how much they cost, and whether they're behaving. Like a cat watching from the shadows, it observes everything without getting in the way.
 
-# Start local infrastructure
-docker-compose up -d  # PostgreSQL, ClickHouse, Redis, NATS
+---
 
-# Build
-make build
+## Contributing
 
-# Test
-make test
-
-# Run API server
-./bin/meowsight-api
-
-# Run LLM proxy
-./bin/meowsight-proxy
-
-# Run ingestion worker
-./bin/meowsight-ingest
-```
+AI/vibe-coded PRs welcome!
 
 ---
 
 ## License
 
-Proprietary - All rights reserved
+MIT

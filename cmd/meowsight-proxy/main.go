@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/YoungsoonLee/meowsight/internal/config"
+	"github.com/YoungsoonLee/meowsight/internal/proxy"
+	"github.com/YoungsoonLee/meowsight/internal/proxy/provider"
 )
 
 func main() {
@@ -23,26 +25,30 @@ func main() {
 		os.Exit(1)
 	}
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		fmt.Fprintln(w, `{"status":"ok"}`)
-	})
+	pricing := proxy.NewPricingTable()
+	if err := pricing.LoadFromFile(cfg.Proxy.PricingFile); err != nil {
+		slog.Warn("failed to load pricing file, costs will be reported as 0", "path", cfg.Proxy.PricingFile, "error", err)
+	}
 
-	// TODO: mount proxy routes for each LLM provider
-	// mux.Handle("/openai/", proxy.NewOpenAIHandler())
-	// mux.Handle("/anthropic/", proxy.NewAnthropicHandler())
+	emitter := &proxy.LogEmitter{}
+
+	router := proxy.NewRouter(emitter)
+	router.RegisterProvider("openai", provider.NewOpenAI("openai", cfg.Proxy.Providers.OpenAIBaseURL, pricing, emitter).Handler())
+	router.RegisterProvider("anthropic", provider.NewAnthropic("anthropic", cfg.Proxy.Providers.AnthropicBaseURL, pricing, emitter).Handler())
 
 	srv := &http.Server{
 		Addr:         fmt.Sprintf(":%d", cfg.Proxy.Port),
-		Handler:      mux,
+		Handler:      router,
 		ReadTimeout:  cfg.Proxy.ReadTimeout,
 		WriteTimeout: cfg.Proxy.WriteTimeout,
 		IdleTimeout:  120 * time.Second,
 	}
 
 	go func() {
-		slog.Info("starting meowsight-proxy", "port", cfg.Proxy.Port)
+		slog.Info("starting meowsight-proxy",
+			"port", cfg.Proxy.Port,
+			"providers", []string{"openai", "anthropic"},
+		)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			slog.Error("proxy server error", "error", err)
 			os.Exit(1)

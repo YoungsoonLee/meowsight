@@ -29,6 +29,15 @@ type ProxyConfig struct {
 	WriteTimeout    time.Duration
 	MaxRequestBody  int64
 	DefaultProvider string
+	PricingFile     string
+	Providers       ProvidersConfig
+}
+
+type ProvidersConfig struct {
+	OpenAIBaseURL    string
+	AnthropicBaseURL string
+	GeminiBaseURL    string
+	BedrockBaseURL   string
 }
 
 type PostgresConfig struct {
@@ -87,6 +96,13 @@ func Load() (*Config, error) {
 			WriteTimeout:    envDuration("PROXY_WRITE_TIMEOUT", 120*time.Second),
 			MaxRequestBody:  envInt64("PROXY_MAX_REQUEST_BODY", 10<<20), // 10MB
 			DefaultProvider: envStr("PROXY_DEFAULT_PROVIDER", "openai"),
+			PricingFile:     envStr("PRICING_FILE", "configs/pricing.json"),
+			Providers: ProvidersConfig{
+				OpenAIBaseURL:    envStr("OPENAI_BASE_URL", "https://api.openai.com"),
+				AnthropicBaseURL: envStr("ANTHROPIC_BASE_URL", "https://api.anthropic.com"),
+				GeminiBaseURL:    envStr("GEMINI_BASE_URL", "https://generativelanguage.googleapis.com"),
+				BedrockBaseURL:   envStr("BEDROCK_BASE_URL", ""),
+			},
 		},
 		Postgres: PostgresConfig{
 			Host:     envStr("POSTGRES_HOST", "localhost"),
