@@ -91,6 +91,111 @@ ClickH.   ClickH.     PostgreSQL
 
 ---
 
+## Connecting Your Agent
+
+There are **two ways** to connect your AI agent to MeowSight. Choose whichever works best for your setup:
+
+### Option 1: Headers (Recommended)
+
+Best for agents where you control the HTTP client — custom agents, LangChain, CrewAI, AutoGen, etc.
+
+**Step 1:** Point your agent at the MeowSight proxy:
+```bash
+OPENAI_BASE_URL=https://proxy.meowsight.io/openai/v1
+```
+
+**Step 2:** Add identification headers:
+
+```python
+# Python (OpenAI SDK)
+from openai import OpenAI
+client = OpenAI(
+    base_url="https://proxy.meowsight.io/openai/v1",
+    default_headers={
+        "X-Meowsight-Tenant": "my-company",
+        "X-Meowsight-Agent": "code-reviewer",
+    }
+)
+
+# Python (LangChain)
+from langchain_openai import ChatOpenAI
+llm = ChatOpenAI(
+    base_url="https://proxy.meowsight.io/openai/v1",
+    default_headers={
+        "X-Meowsight-Tenant": "my-company",
+        "X-Meowsight-Agent": "summarizer",
+    }
+)
+
+# Python (Anthropic SDK)
+import anthropic
+client = anthropic.Anthropic(
+    base_url="https://proxy.meowsight.io/anthropic",
+    default_headers={
+        "X-Meowsight-Tenant": "my-company",
+        "X-Meowsight-Agent": "claude-agent",
+    }
+)
+
+# Node.js (OpenAI SDK)
+const client = new OpenAI({
+    baseURL: "https://proxy.meowsight.io/openai/v1",
+    defaultHeaders: {
+        "X-Meowsight-Tenant": "my-company",
+        "X-Meowsight-Agent": "support-bot",
+    },
+});
+
+# cURL
+curl https://proxy.meowsight.io/openai/v1/chat/completions \
+  -H "Authorization: Bearer sk-your-openai-key" \
+  -H "X-Meowsight-Tenant: my-company" \
+  -H "X-Meowsight-Agent: test-agent" \
+  -d '{"model":"gpt-4o","messages":[{"role":"user","content":"Hello"}]}'
+```
+
+### Option 2: API Key (For agents that can't add custom headers)
+
+Best for agents like Cursor, Windsurf, or other tools where you can only change `base_url` and `api_key`.
+
+**Step 1:** Get a MeowSight API key (issued per agent):
+```bash
+# MeowSight issues a key that maps to your tenant + agent + real LLM key
+# Example: ms-cursor-prod-a1b2c3d4e5f6
+```
+
+**Step 2:** Use it as your LLM API key:
+```bash
+# Just change these two settings — no custom headers needed
+OPENAI_BASE_URL=https://proxy.meowsight.io/openai/v1
+OPENAI_API_KEY=ms-cursor-prod-a1b2c3d4e5f6
+```
+
+The proxy automatically:
+1. Recognizes the `ms-` key and resolves it to your tenant + agent
+2. Swaps it with your real OpenAI/Anthropic API key before forwarding
+3. Your agent is identified and tracked without any code changes
+
+### Identification Priority
+
+```
+Request arrives at proxy
+  │
+  ├─ 1. X-Meowsight-* headers present? → Use headers (most flexible)
+  │
+  ├─ 2. API key recognized (ms-*)? → Resolve from key mapping
+  │
+  └─ 3. Neither? → Recorded as tenant="default", agent="unknown"
+```
+
+| Method | Change needed | Best for |
+|---|---|---|
+| **Headers** | `base_url` + 2 headers | Custom agents, SDKs, frameworks |
+| **API Key** | `base_url` + `api_key` | Cursor, Windsurf, tools with limited config |
+| **None** | `base_url` only | Quick testing (no agent attribution) |
+
+---
+
 ## Event Pipeline (NATS JetStream)
 
 Every proxied LLM request emits a `RequestEvent` to NATS JetStream for downstream processing:
@@ -206,12 +311,54 @@ NATS (EVENTS stream) → meowsight-ingest (ingest-writer consumer) → ClickHous
 - **Hot storage**: ClickHouse, 30-day TTL (automatic expiry)
 - **Cold storage**: S3 Parquet export (planned, up to 7 years)
 
+---
+
+## Agent Auto-Discovery
+
+Agents are automatically discovered and tracked from proxy traffic — no manual registration required.
+
+```
+NATS (EVENTS stream) → meowsight-ingest (agent handler) → PostgreSQL (agents table)
+```
+
+### How It Works
+
+1. When a new `tenant_id` + `agent_id` combination appears in proxy traffic, it's automatically registered in PostgreSQL
+2. Each subsequent request updates `last_seen_at`, `provider`, `model`, and increments `request_count` (UPSERT)
+3. Agent liveness: `WHERE last_seen_at > now() - interval '10 minutes'` → agent is active
+4. When a tenant formally registers, existing discovered agents can be linked via `tenant_id` FK
+
+### Agent Lifecycle
+
+```
+First request → PostgreSQL agents table (UPSERT)
+                  │
+                  │ status = 'active', first_seen_at = now()
+                  │
+               Next requests
+                  │
+                  │ last_seen_at = now(), request_count++
+                  │
+               Tenant registers
+                  │
+                  └→ link tenant_id FK for full management
+```
+
+### PostgreSQL `agents` Table
+
+The `agents` table supports both auto-discovery and manual registration:
+
+- **Auto-discovery**: `external_tenant_id` + `external_agent_id` (string, from headers/API key) with UPSERT on conflict
+- **Tenant linking**: `tenant_id` FK (nullable) — linked when tenant formally registers
+- **Tracking**: `first_seen_at`, `last_seen_at`, `request_count`, `provider`, `model`, `status`
+- **Liveness query**: `SELECT * FROM agents WHERE last_seen_at > now() - interval '10 minutes'`
+
 ### Running the Ingest Worker
 
-Both metric writer and audit writer run in the same `meowsight-ingest` process as a single NATS consumer with two handlers:
+Metric writer, audit writer, and agent tracker all run in the same `meowsight-ingest` process:
 
 ```bash
-# Requires NATS and ClickHouse to be running
+# Requires NATS, ClickHouse, and PostgreSQL to be running
 make run-ingest   # or: ./bin/meowsight-ingest
 ```
 
@@ -390,10 +537,10 @@ Model pricing is managed in `configs/pricing.json` — no code changes or rebuil
 - [x] Event emission to NATS JetStream ✅
 - [x] ClickHouse metric writer (latency, tokens, errors) ✅
 - [x] ClickHouse audit writer (request/response logs) ✅
-- [ ] Agent auto-discovery from proxy traffic
+- [x] Agent auto-discovery from proxy traffic ✅
 - [ ] REST API for dashboard queries
 - [ ] Web dashboard (cost trends, agent status, audit logs)
-- [ ] API key authentication for tenants
+- [x] API key authentication for tenants ✅
 - [ ] Tenant registration and management
 - [ ] All-in-one `docker compose up` for full local deployment (proxy, api, ingest, worker + infra)
 

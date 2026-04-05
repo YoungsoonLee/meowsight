@@ -17,11 +17,12 @@ import (
 
 // Anthropic implements a reverse proxy for the Anthropic API.
 type Anthropic struct {
-	name    string
-	prefix  string
-	target  *url.URL
-	pricing *proxy.PricingTable
-	emitter proxy.EventEmitter
+	name        string
+	prefix      string
+	target      *url.URL
+	pricing     *proxy.PricingTable
+	emitter     proxy.EventEmitter
+	keyResolver *proxy.KeyResolver
 }
 
 func NewAnthropic(name, baseURL string, pricing *proxy.PricingTable, emitter proxy.EventEmitter) *Anthropic {
@@ -29,12 +30,16 @@ func NewAnthropic(name, baseURL string, pricing *proxy.PricingTable, emitter pro
 	return &Anthropic{name: name, prefix: "/" + name, target: u, pricing: pricing, emitter: emitter}
 }
 
+// SetKeyResolver sets the API key resolver for key-based agent identification.
+func (a *Anthropic) SetKeyResolver(kr *proxy.KeyResolver) { a.keyResolver = kr }
+
 func (a *Anthropic) Name() string { return a.name }
 
 func (a *Anthropic) Handler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
-		tenantID, agentID := proxy.TagFromRequest(r)
+		tag := proxy.TagFromRequestWithKey(r, a.keyResolver)
+		tenantID, agentID := tag.TenantID, tag.AgentID
 
 		bodyBytes, err := io.ReadAll(r.Body)
 		if err != nil {
@@ -57,6 +62,11 @@ func (a *Anthropic) Handler() http.Handler {
 
 		r.Header.Del("X-Meowsight-Agent")
 		r.Header.Del("X-Meowsight-Tenant")
+
+		// Swap MeowSight API key with real upstream key if resolved via key-based auth
+		if tag.UpstreamAPIKey != "" {
+			r.Header.Set("x-api-key", tag.UpstreamAPIKey)
+		}
 
 		if reqBody.Stream {
 			a.handleStreaming(w, r, tenantID, agentID, reqBody.Model, start)

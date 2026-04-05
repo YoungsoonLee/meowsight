@@ -11,9 +11,11 @@ import (
 	"time"
 
 	natsadapter "github.com/YoungsoonLee/meowsight/internal/adapter/nats"
+	pgadapter "github.com/YoungsoonLee/meowsight/internal/adapter/postgres"
 	"github.com/YoungsoonLee/meowsight/internal/config"
 	"github.com/YoungsoonLee/meowsight/internal/proxy"
 	"github.com/YoungsoonLee/meowsight/internal/proxy/provider"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 func main() {
@@ -41,9 +43,28 @@ func main() {
 		emitter = natsEmitter
 	}
 
+	// Set up API key resolver (optional — requires PostgreSQL)
+	var keyResolver *proxy.KeyResolver
+	pool, err := pgxpool.New(context.Background(), cfg.Postgres.DSN())
+	if err != nil {
+		slog.Warn("failed to connect to PostgreSQL, API key-based auth disabled", "error", err)
+	} else {
+		keyStore := pgadapter.NewKeyStore(pool)
+		keyResolver = proxy.NewKeyResolver(keyStore, 5*time.Minute)
+		slog.Info("API key resolver enabled")
+	}
+
+	oai := provider.NewOpenAI("openai", cfg.Proxy.Providers.OpenAIBaseURL, pricing, emitter)
+	ant := provider.NewAnthropic("anthropic", cfg.Proxy.Providers.AnthropicBaseURL, pricing, emitter)
+
+	if keyResolver != nil {
+		oai.SetKeyResolver(keyResolver)
+		ant.SetKeyResolver(keyResolver)
+	}
+
 	router := proxy.NewRouter(emitter)
-	router.RegisterProvider("openai", provider.NewOpenAI("openai", cfg.Proxy.Providers.OpenAIBaseURL, pricing, emitter).Handler())
-	router.RegisterProvider("anthropic", provider.NewAnthropic("anthropic", cfg.Proxy.Providers.AnthropicBaseURL, pricing, emitter).Handler())
+	router.RegisterProvider("openai", oai.Handler())
+	router.RegisterProvider("anthropic", ant.Handler())
 
 	srv := &http.Server{
 		Addr:         fmt.Sprintf(":%d", cfg.Proxy.Port),
@@ -71,6 +92,10 @@ func main() {
 	slog.Info("shutting down proxy")
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
+
+	if pool != nil {
+		pool.Close()
+	}
 
 	if err := srv.Shutdown(ctx); err != nil {
 		slog.Error("proxy shutdown error", "error", err)

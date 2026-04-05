@@ -1,3 +1,4 @@
+DROP TABLE IF EXISTS api_keys;
 DROP TABLE IF EXISTS audit_chain;
 DROP TABLE IF EXISTS budgets;
 DROP TABLE IF EXISTS model_pricing;

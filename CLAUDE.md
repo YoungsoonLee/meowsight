@@ -73,9 +73,12 @@ The proxy is the core product. Key files:
 - `internal/proxy/provider/openai.go` — OpenAI reverse proxy (non-streaming + SSE)
 - `internal/proxy/provider/anthropic.go` — Anthropic reverse proxy (non-streaming + SSE)
 - `internal/proxy/pricing.go` — PricingTable, loads from `configs/pricing.json`
-- `internal/proxy/tagger.go` — Extracts tenant/agent ID from `X-Meowsight-*` headers
+- `internal/proxy/tagger.go` — Dual agent identification: headers (priority 1) + API key resolver (priority 2)
+- `internal/proxy/keyresolver.go` — API key → tenant/agent resolution with in-memory cache
 - `internal/proxy/event.go` — RequestEvent struct (with JSON tags) + EventEmitter interface
 - `internal/adapter/nats/emitter.go` — NATS JetStream EventEmitter (production)
+- `internal/adapter/postgres/key_store.go` — PostgreSQL-backed API key lookup
+- `migrations/postgres/003_api_keys.up.sql` — api_keys table (key_hash, tenant/agent mapping, upstream key)
 
 ### How providers work
 
@@ -84,6 +87,15 @@ The proxy is the core product. Key files:
 - Same provider type can be registered multiple times with different names
 - OpenAI streaming: `stream_options.include_usage=true` is auto-injected
 - Anthropic streaming: parses `message_start` and `message_delta` events for token counts
+
+### Agent Identification (Dual Mode)
+
+- **Headers (priority 1)**: `X-Meowsight-Tenant` + `X-Meowsight-Agent` — for agents that can set custom headers
+- **API Key (priority 2)**: MeowSight-issued `ms-*` keys → resolved to tenant/agent via `api_keys` table
+- API key mode: proxy swaps MeowSight key with real upstream API key before forwarding
+- KeyResolver caches lookups in memory (5min TTL) to avoid DB hits on every request
+- Keys stored as SHA-256 hash in PostgreSQL, with prefix for quick identification
+- Providers call `SetKeyResolver()` to enable key-based auth (optional, graceful if PostgreSQL unavailable)
 
 ### Event Pipeline (NATS JetStream)
 
@@ -109,8 +121,18 @@ The proxy is the core product. Key files:
 - `internal/adapter/clickhouse/audit_writer.go` — Inserts audit log entries to ClickHouse `audit_log` table
 - Each event → one audit log row with UUID, action (`llm_request`), resource, full event details
 - Metadata map: `{"streaming": "true/false"}`
-- Both metric writer and audit writer run in same `meowsight-ingest` as one NATS consumer (`ingest-writer`)
+- All writers run in same `meowsight-ingest` as one NATS consumer (`ingest-writer`)
 - Audit log TTL: 30 days in ClickHouse (hot), planned S3 Parquet export (cold)
+
+### Agent Auto-Discovery
+
+- `internal/adapter/postgres/agent_repo.go` — PostgreSQL agent registry (UPSERT into `agents` table)
+- Single `agents` table: supports both auto-discovery (string-based external IDs) and managed registration (UUID tenant FK)
+- PostgreSQL only: no Redis for agent tracking (simplicity, sufficient performance for current scale)
+- Agent liveness: `WHERE last_seen_at > now() - interval '10 minutes'`
+- Agent lifecycle: discovered → tracked in PG → tenant registers → linked via tenant_id FK
+- Redis reserved for future use: rate limiting, caching (v0.3+)
+- Dependencies: `github.com/jackc/pgx/v5`
 
 ### Configuration (env vars)
 
@@ -128,12 +150,13 @@ The proxy is the core product. Key files:
 
 ## Database Migrations
 
-- `migrations/postgres/001_init.up.sql` — tenants, agents, budgets, model_pricing, audit_chain
+- `migrations/postgres/001_init.up.sql` — All tables: tenants, agents (with auto-discovery fields), model_pricing, budgets, audit_chain, api_keys
 - `migrations/clickhouse/001_init.up.sql` — metrics, audit_log tables
 
 ## Important Patterns
 
-- LLM Proxy is the core product — agents change one env var, no code modifications
+- LLM Proxy is the core product — agents connect via headers or API key, minimal config changes
+- Dual agent identification: headers (priority) + API key resolution (fallback for tools like Cursor)
 - External pricing table (`configs/pricing.json`) — no rebuild needed for price changes
 - Configurable provider base URLs — supports Azure, local mocks, custom endpoints
 - EventEmitter interface decouples proxy from event pipeline (LogEmitter for dev, NATS for production)

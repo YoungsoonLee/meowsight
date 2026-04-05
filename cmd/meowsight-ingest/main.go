@@ -9,6 +9,7 @@ import (
 
 	chadapter "github.com/YoungsoonLee/meowsight/internal/adapter/clickhouse"
 	natsadapter "github.com/YoungsoonLee/meowsight/internal/adapter/nats"
+	pgadapter "github.com/YoungsoonLee/meowsight/internal/adapter/postgres"
 	"github.com/YoungsoonLee/meowsight/internal/config"
 	"github.com/YoungsoonLee/meowsight/internal/proxy"
 )
@@ -54,6 +55,14 @@ func main() {
 	}
 	defer auditWriter.Close()
 
+	// Connect to PostgreSQL — agent registry
+	agentRepo, err := pgadapter.NewAgentRepo(ctx, cfg.Postgres.DSN())
+	if err != nil {
+		slog.Error("failed to connect to postgres for agent registry", "error", err)
+		os.Exit(1)
+	}
+	defer agentRepo.Close()
+
 	// Metric handler: writes metrics to ClickHouse
 	metricHandler := func(ctx context.Context, event proxy.RequestEvent) error {
 		return metricWriter.WriteMetrics(ctx, event)
@@ -64,14 +73,31 @@ func main() {
 		return auditWriter.WriteAuditLog(ctx, event)
 	}
 
-	// Create NATS consumer with both handlers
-	consumer, err := natsadapter.NewConsumer(ctx, cfg.NATS.URL, "ingest-writer", metricHandler, auditHandler)
+	// Agent discovery handler: upsert to PostgreSQL
+	agentHandler := func(ctx context.Context, event proxy.RequestEvent) error {
+		tenantID := event.TenantID
+		if tenantID == "" {
+			tenantID = "default"
+		}
+		agentID := event.AgentID
+		if agentID == "" {
+			agentID = "unknown"
+		}
+		return agentRepo.Upsert(ctx, tenantID, agentID, event.Provider, event.Model)
+	}
+
+	// Create NATS consumer with all handlers
+	consumer, err := natsadapter.NewConsumer(ctx, cfg.NATS.URL, "ingest-writer", metricHandler, auditHandler, agentHandler)
 	if err != nil {
 		slog.Error("failed to create nats consumer", "error", err)
 		os.Exit(1)
 	}
 
-	slog.Info("starting meowsight-ingest", "clickhouse", cfg.ClickHouse.Host, "nats", cfg.NATS.URL)
+	slog.Info("starting meowsight-ingest",
+		"clickhouse", cfg.ClickHouse.Host,
+		"postgres", cfg.Postgres.Host,
+		"nats", cfg.NATS.URL,
+	)
 
 	// Start consumer in background
 	go func() {

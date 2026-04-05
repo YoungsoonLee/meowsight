@@ -17,11 +17,12 @@ import (
 
 // OpenAI implements a reverse proxy for the OpenAI API.
 type OpenAI struct {
-	name    string
-	prefix  string
-	target  *url.URL
-	pricing *proxy.PricingTable
-	emitter proxy.EventEmitter
+	name        string
+	prefix      string
+	target      *url.URL
+	pricing     *proxy.PricingTable
+	emitter     proxy.EventEmitter
+	keyResolver *proxy.KeyResolver
 }
 
 func NewOpenAI(name, baseURL string, pricing *proxy.PricingTable, emitter proxy.EventEmitter) *OpenAI {
@@ -29,12 +30,16 @@ func NewOpenAI(name, baseURL string, pricing *proxy.PricingTable, emitter proxy.
 	return &OpenAI{name: name, prefix: "/" + name, target: u, pricing: pricing, emitter: emitter}
 }
 
+// SetKeyResolver sets the API key resolver for key-based agent identification.
+func (o *OpenAI) SetKeyResolver(kr *proxy.KeyResolver) { o.keyResolver = kr }
+
 func (o *OpenAI) Name() string { return o.name }
 
 func (o *OpenAI) Handler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
-		tenantID, agentID := proxy.TagFromRequest(r)
+		tag := proxy.TagFromRequestWithKey(r, o.keyResolver)
+		tenantID, agentID := tag.TenantID, tag.AgentID
 
 		// Read request body to detect streaming and model
 		bodyBytes, err := io.ReadAll(r.Body)
@@ -75,6 +80,11 @@ func (o *OpenAI) Handler() http.Handler {
 		// Remove MeowSight headers before forwarding
 		r.Header.Del("X-Meowsight-Agent")
 		r.Header.Del("X-Meowsight-Tenant")
+
+		// Swap MeowSight API key with real upstream key if resolved via key-based auth
+		if tag.UpstreamAPIKey != "" {
+			r.Header.Set("Authorization", "Bearer "+tag.UpstreamAPIKey)
+		}
 
 		if reqBody.Stream {
 			o.handleStreaming(w, r, tenantID, agentID, reqBody.Model, start)
