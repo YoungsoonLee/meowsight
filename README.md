@@ -140,6 +140,46 @@ If NATS is unavailable (e.g., local development without Docker), the proxy autom
 
 ---
 
+## ClickHouse Metric Writer
+
+The `meowsight-ingest` service consumes events from NATS JetStream and writes metrics to ClickHouse:
+
+```
+NATS (EVENTS stream) → meowsight-ingest (metric-writer consumer) → ClickHouse (metrics table)
+```
+
+### Metrics per Request
+
+Each proxied LLM request produces the following metrics in ClickHouse:
+
+| Metric | Description |
+|---|---|
+| `input_tokens` | Number of input/prompt tokens |
+| `output_tokens` | Number of output/completion tokens |
+| `cost_usd` | Calculated cost in USD |
+| `latency_ms` | End-to-end request latency |
+| `error_count` | 1 if request had an error (only written on errors) |
+
+Each metric row includes labels: `provider`, `model`, `streaming` — enabling flexible aggregation queries.
+
+### Consumer Configuration
+
+| Setting | Value |
+|---|---|
+| Consumer name | `metric-writer` |
+| Ack policy | Explicit |
+| Max deliver | 5 retries |
+| Ack wait | 30 seconds |
+
+### Running the Ingest Worker
+
+```bash
+# Requires NATS and ClickHouse to be running
+make run-ingest   # or: ./bin/meowsight-ingest
+```
+
+---
+
 ## Core Features
 
 | Domain | Description | How |
@@ -311,7 +351,7 @@ Model pricing is managed in `configs/pricing.json` — no code changes or rebuil
 ### v0.2 — Event Pipeline & Dashboard
 
 - [x] Event emission to NATS JetStream ✅
-- [ ] ClickHouse metric writer (latency, tokens, errors)
+- [x] ClickHouse metric writer (latency, tokens, errors) ✅
 - [ ] ClickHouse audit writer (request/response logs)
 - [ ] Agent auto-discovery from proxy traffic
 - [ ] REST API for dashboard queries

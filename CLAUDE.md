@@ -94,6 +94,16 @@ The proxy is the core product. Key files:
 - Fallback: NATS unavailable → auto-fallback to `LogEmitter` (slog)
 - Dependencies: `github.com/nats-io/nats.go` (v1.50+)
 
+### ClickHouse Metric Writer
+
+- `internal/adapter/clickhouse/metric_writer.go` — Batch-inserts metrics to ClickHouse `metrics` table
+- `internal/adapter/nats/consumer.go` — Durable JetStream consumer, dispatches events to handlers
+- `cmd/meowsight-ingest/main.go` — Wires NATS consumer → ClickHouse metric writer
+- Metrics per event: `input_tokens`, `output_tokens`, `cost_usd`, `latency_ms`, `error_count` (on error)
+- Each metric row has labels: `provider`, `model`, `streaming`
+- Consumer: durable `metric-writer`, explicit ack, max 5 retries, 30s ack wait
+- Dependencies: `github.com/ClickHouse/clickhouse-go/v2`
+
 ### Configuration (env vars)
 
 | Variable | Default |
