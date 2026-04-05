@@ -74,7 +74,8 @@ The proxy is the core product. Key files:
 - `internal/proxy/provider/anthropic.go` — Anthropic reverse proxy (non-streaming + SSE)
 - `internal/proxy/pricing.go` — PricingTable, loads from `configs/pricing.json`
 - `internal/proxy/tagger.go` — Extracts tenant/agent ID from `X-Meowsight-*` headers
-- `internal/proxy/event.go` — EventEmitter interface (currently LogEmitter, future: NATS)
+- `internal/proxy/event.go` — RequestEvent struct (with JSON tags) + EventEmitter interface
+- `internal/adapter/nats/emitter.go` — NATS JetStream EventEmitter (production)
 
 ### How providers work
 
@@ -83,6 +84,15 @@ The proxy is the core product. Key files:
 - Same provider type can be registered multiple times with different names
 - OpenAI streaming: `stream_options.include_usage=true` is auto-injected
 - Anthropic streaming: parses `message_start` and `message_delta` events for token counts
+
+### Event Pipeline (NATS JetStream)
+
+- `internal/adapter/nats/emitter.go` — Publishes `RequestEvent` to JetStream
+- Stream: `EVENTS`, subjects: `events.>`, retention: WorkQueue, max age: 72h
+- Subject pattern: `events.{tenant_id}.request`
+- Proxy startup: connects to NATS → creates/updates stream → ready
+- Fallback: NATS unavailable → auto-fallback to `LogEmitter` (slog)
+- Dependencies: `github.com/nats-io/nats.go` (v1.50+)
 
 ### Configuration (env vars)
 
@@ -108,5 +118,7 @@ The proxy is the core product. Key files:
 - LLM Proxy is the core product — agents change one env var, no code modifications
 - External pricing table (`configs/pricing.json`) — no rebuild needed for price changes
 - Configurable provider base URLs — supports Azure, local mocks, custom endpoints
-- EventEmitter interface decouples proxy from event pipeline (swap LogEmitter → NATS)
+- EventEmitter interface decouples proxy from event pipeline (LogEmitter for dev, NATS for production)
+- NATS JetStream emitter auto-creates `EVENTS` stream on startup, publishes to `events.{tenant_id}.request`
+- Graceful fallback: if NATS is unavailable, proxy falls back to LogEmitter automatically
 - Future: SDK/agent integration for distributed locking, conflict prevention (not yet implemented)

@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	natsadapter "github.com/YoungsoonLee/meowsight/internal/adapter/nats"
 	"github.com/YoungsoonLee/meowsight/internal/config"
 	"github.com/YoungsoonLee/meowsight/internal/proxy"
 	"github.com/YoungsoonLee/meowsight/internal/proxy/provider"
@@ -30,7 +31,15 @@ func main() {
 		slog.Warn("failed to load pricing file, costs will be reported as 0", "path", cfg.Proxy.PricingFile, "error", err)
 	}
 
-	emitter := &proxy.LogEmitter{}
+	var emitter proxy.EventEmitter
+	natsEmitter, err := natsadapter.NewEmitter(context.Background(), cfg.NATS.URL)
+	if err != nil {
+		slog.Warn("failed to connect to NATS JetStream, falling back to log emitter", "error", err)
+		emitter = &proxy.LogEmitter{}
+	} else {
+		slog.Info("using NATS JetStream event emitter")
+		emitter = natsEmitter
+	}
 
 	router := proxy.NewRouter(emitter)
 	router.RegisterProvider("openai", provider.NewOpenAI("openai", cfg.Proxy.Providers.OpenAIBaseURL, pricing, emitter).Handler())

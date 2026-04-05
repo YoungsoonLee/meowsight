@@ -74,8 +74,8 @@ AI Agents (millions)
                    │  NATS JetStream
                    ▼
 ┌──────────────────────────────────────────┐
-│          Event Bus (NATS JetStream)      │
-│          subjects: events.{tenant}.{type}│
+│     Event Bus (NATS JetStream)           │
+│     subjects: events.{tenant}.{type}     │
 └──┬──────────┬──────────┬─────────────────┘
    │          │          │
    ▼          ▼          ▼
@@ -88,6 +88,55 @@ ClickH.   ClickH.     PostgreSQL
 ```
 
 **Currently supported providers:** OpenAI, Anthropic (implemented). Planned: Google Gemini, Azure OpenAI, AWS Bedrock, and any OpenAI-compatible API.
+
+---
+
+## Event Pipeline (NATS JetStream)
+
+Every proxied LLM request emits a `RequestEvent` to NATS JetStream for downstream processing:
+
+```
+Proxy → NATS JetStream (EVENTS stream) → Consumers (metric writer, audit writer, cost aggregator)
+```
+
+### How It Works
+
+1. On proxy startup, the `EVENTS` stream is automatically created (or updated) in JetStream
+2. After each LLM request completes, a `RequestEvent` is published to subject `events.{tenant_id}.request`
+3. The event contains: tenant/agent IDs, provider, model, token counts, cost, latency, status code, streaming flag, and timestamp
+4. Downstream consumers (metric writer, audit writer) subscribe to the stream and process events independently
+
+### Graceful Fallback
+
+If NATS is unavailable (e.g., local development without Docker), the proxy automatically falls back to `LogEmitter` which logs events via `slog`. No configuration change needed — just start the proxy without NATS.
+
+### Stream Configuration
+
+| Setting | Value |
+|---|---|
+| Stream name | `EVENTS` |
+| Subjects | `events.>` |
+| Retention | WorkQueue (consumed once per consumer) |
+| Max age | 72 hours (replay window) |
+| Storage | File-based |
+
+### Event Payload
+
+```json
+{
+  "tenant_id": "tenant-1",
+  "agent_id": "agent-1",
+  "provider": "openai",
+  "model": "gpt-4o",
+  "input_tokens": 100,
+  "output_tokens": 50,
+  "cost_usd": 0.0075,
+  "latency_ms": 230,
+  "status_code": 200,
+  "streaming": false,
+  "timestamp": "2026-04-04T12:00:00Z"
+}
+```
 
 ---
 
@@ -261,7 +310,7 @@ Model pricing is managed in `configs/pricing.json` — no code changes or rebuil
 
 ### v0.2 — Event Pipeline & Dashboard
 
-- [ ] Event emission to NATS JetStream
+- [x] Event emission to NATS JetStream ✅
 - [ ] ClickHouse metric writer (latency, tokens, errors)
 - [ ] ClickHouse audit writer (request/response logs)
 - [ ] Agent auto-discovery from proxy traffic
