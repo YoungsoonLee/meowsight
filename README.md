@@ -171,7 +171,44 @@ Each metric row includes labels: `provider`, `model`, `streaming` — enabling f
 | Max deliver | 5 retries |
 | Ack wait | 30 seconds |
 
+---
+
+## ClickHouse Audit Writer
+
+The audit writer records every proxied LLM request as a detailed log entry in the `audit_log` table — for compliance, debugging, and forensic analysis.
+
+```
+NATS (EVENTS stream) → meowsight-ingest (ingest-writer consumer) → ClickHouse (audit_log table)
+```
+
+### Audit Log Fields
+
+| Field | Source | Description |
+|---|---|---|
+| `id` | Generated UUID | Unique audit entry ID |
+| `tenant_id` | `X-Meowsight-Tenant` header | Tenant attribution |
+| `agent_id` | `X-Meowsight-Agent` header | Agent attribution |
+| `action` | Fixed: `llm_request` | Type of action |
+| `resource` | Derived: `/{provider}/v1/chat` | API endpoint |
+| `provider` | From proxy | OpenAI, Anthropic, etc. |
+| `model` | From LLM response | gpt-4o, claude-sonnet-4-0, etc. |
+| `input_tokens` | From LLM response | Prompt token count |
+| `output_tokens` | From LLM response | Completion token count |
+| `cost_usd` | Calculated | Cost from pricing table |
+| `latency_ms` | Measured | Request duration |
+| `status_code` | From upstream | HTTP status code |
+| `error` | From upstream | Error message (empty on success) |
+| `metadata` | Derived | `{"streaming": "true/false"}` |
+| `timestamp` | From event | Request timestamp |
+
+### Retention
+
+- **Hot storage**: ClickHouse, 30-day TTL (automatic expiry)
+- **Cold storage**: S3 Parquet export (planned, up to 7 years)
+
 ### Running the Ingest Worker
+
+Both metric writer and audit writer run in the same `meowsight-ingest` process as a single NATS consumer with two handlers:
 
 ```bash
 # Requires NATS and ClickHouse to be running
@@ -352,7 +389,7 @@ Model pricing is managed in `configs/pricing.json` — no code changes or rebuil
 
 - [x] Event emission to NATS JetStream ✅
 - [x] ClickHouse metric writer (latency, tokens, errors) ✅
-- [ ] ClickHouse audit writer (request/response logs)
+- [x] ClickHouse audit writer (request/response logs) ✅
 - [ ] Agent auto-discovery from proxy traffic
 - [ ] REST API for dashboard queries
 - [ ] Web dashboard (cost trends, agent status, audit logs)

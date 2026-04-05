@@ -104,6 +104,14 @@ The proxy is the core product. Key files:
 - Consumer: durable `metric-writer`, explicit ack, max 5 retries, 30s ack wait
 - Dependencies: `github.com/ClickHouse/clickhouse-go/v2`
 
+### ClickHouse Audit Writer
+
+- `internal/adapter/clickhouse/audit_writer.go` — Inserts audit log entries to ClickHouse `audit_log` table
+- Each event → one audit log row with UUID, action (`llm_request`), resource, full event details
+- Metadata map: `{"streaming": "true/false"}`
+- Both metric writer and audit writer run in same `meowsight-ingest` as one NATS consumer (`ingest-writer`)
+- Audit log TTL: 30 days in ClickHouse (hot), planned S3 Parquet export (cold)
+
 ### Configuration (env vars)
 
 | Variable | Default |

@@ -26,7 +26,7 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Connect to ClickHouse
+	// Connect to ClickHouse — metric writer
 	metricWriter, err := chadapter.NewMetricWriter(ctx,
 		cfg.ClickHouse.Host,
 		cfg.ClickHouse.Port,
@@ -35,18 +35,37 @@ func main() {
 		cfg.ClickHouse.Password,
 	)
 	if err != nil {
-		slog.Error("failed to connect to clickhouse", "error", err)
+		slog.Error("failed to connect to clickhouse for metrics", "error", err)
 		os.Exit(1)
 	}
 	defer metricWriter.Close()
+
+	// Connect to ClickHouse — audit writer
+	auditWriter, err := chadapter.NewAuditWriter(ctx,
+		cfg.ClickHouse.Host,
+		cfg.ClickHouse.Port,
+		cfg.ClickHouse.Database,
+		cfg.ClickHouse.User,
+		cfg.ClickHouse.Password,
+	)
+	if err != nil {
+		slog.Error("failed to connect to clickhouse for audit", "error", err)
+		os.Exit(1)
+	}
+	defer auditWriter.Close()
 
 	// Metric handler: writes metrics to ClickHouse
 	metricHandler := func(ctx context.Context, event proxy.RequestEvent) error {
 		return metricWriter.WriteMetrics(ctx, event)
 	}
 
-	// Create NATS consumer with metric handler
-	consumer, err := natsadapter.NewConsumer(ctx, cfg.NATS.URL, "metric-writer", metricHandler)
+	// Audit handler: writes audit log entries to ClickHouse
+	auditHandler := func(ctx context.Context, event proxy.RequestEvent) error {
+		return auditWriter.WriteAuditLog(ctx, event)
+	}
+
+	// Create NATS consumer with both handlers
+	consumer, err := natsadapter.NewConsumer(ctx, cfg.NATS.URL, "ingest-writer", metricHandler, auditHandler)
 	if err != nil {
 		slog.Error("failed to create nats consumer", "error", err)
 		os.Exit(1)
