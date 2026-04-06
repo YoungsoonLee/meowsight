@@ -364,6 +364,111 @@ make run-ingest   # or: ./bin/meowsight-ingest
 
 ---
 
+## REST API (Dashboard Queries)
+
+The `meowsight-api` server (port 8080) provides REST endpoints for dashboard data.
+
+### Endpoints
+
+#### `GET /api/v1/agents` — List discovered agents
+
+```bash
+curl "http://localhost:8080/api/v1/agents?tenant_id=my-company"
+```
+
+```json
+{
+  "tenant_id": "my-company",
+  "total": 2,
+  "agents": [
+    {
+      "id": "uuid",
+      "agent_id": "code-reviewer",
+      "status": "active",
+      "provider": "openai",
+      "model": "gpt-4o",
+      "first_seen_at": "2026-04-01T10:00:00Z",
+      "last_seen_at": "2026-04-05T12:30:00Z",
+      "request_count": 1523,
+      "active": true
+    }
+  ]
+}
+```
+
+`active` field: `true` if `last_seen_at` is within the last 10 minutes.
+
+#### `GET /api/v1/metrics/summary` — Aggregated metrics
+
+```bash
+curl "http://localhost:8080/api/v1/metrics/summary?tenant_id=my-company&from=2026-04-01T00:00:00Z&to=2026-04-05T23:59:59Z"
+```
+
+```json
+{
+  "tenant_id": "my-company",
+  "total_cost_usd": 12.45,
+  "total_input_tokens": 450000,
+  "total_output_tokens": 120000,
+  "breakdown": [
+    {
+      "agent_id": "code-reviewer",
+      "provider": "openai",
+      "model": "gpt-4o",
+      "total_cost_usd": 8.50,
+      "avg_latency_ms": 230,
+      "request_count": 1200
+    }
+  ]
+}
+```
+
+Default time range: last 24 hours. Use `from` and `to` (RFC3339) to customize.
+
+#### `GET /api/v1/audit` — Audit log entries
+
+```bash
+curl "http://localhost:8080/api/v1/audit?tenant_id=my-company&limit=10&offset=0"
+```
+
+```json
+{
+  "tenant_id": "my-company",
+  "limit": 10,
+  "offset": 0,
+  "logs": [
+    {
+      "id": "uuid",
+      "agent_id": "code-reviewer",
+      "provider": "openai",
+      "model": "gpt-4o",
+      "input_tokens": 150,
+      "output_tokens": 80,
+      "cost_usd": 0.0012,
+      "latency_ms": 245,
+      "status_code": 200,
+      "timestamp": "2026-04-05T12:30:00Z"
+    }
+  ]
+}
+```
+
+#### `GET /healthz` — Health check
+
+```bash
+curl http://localhost:8080/healthz
+# {"status":"ok"}
+```
+
+### Running the API Server
+
+```bash
+# Requires PostgreSQL and ClickHouse to be running
+make run-api   # or: ./bin/meowsight-api (port 8080)
+```
+
+---
+
 ## Core Features
 
 | Domain | Description | How |
@@ -434,7 +539,7 @@ meowsight/
 │
 ├── internal/
 │   ├── config/                       # App configuration (env vars)
-│   ├── proxy/                        # LLM proxy engine ✅ Implemented
+│   ├── proxy/                        # LLM proxy engine Implemented
 │   │   ├── router.go                 # Route requests to correct LLM provider
 │   │   ├── event.go                  # RequestEvent struct + EventEmitter interface
 │   │   ├── event_logger.go           # Dev-mode event logger (slog)
@@ -538,7 +643,7 @@ Model pricing is managed in `configs/pricing.json` — no code changes or rebuil
 - [x] ClickHouse metric writer (latency, tokens, errors) ✅
 - [x] ClickHouse audit writer (request/response logs) ✅
 - [x] Agent auto-discovery from proxy traffic ✅
-- [ ] REST API for dashboard queries
+- [x] REST API for dashboard queries ✅
 - [ ] Web dashboard (cost trends, agent status, audit logs)
 - [x] API key authentication for tenants ✅
 - [ ] Tenant registration and management

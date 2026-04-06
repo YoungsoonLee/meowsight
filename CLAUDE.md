@@ -65,6 +65,18 @@ handler → app → domain ← adapter
 - **Object Storage**: S3/MinIO (audit archive)
 - **CI**: GitHub Actions (go vet + staticcheck)
 
+## REST API (Implemented)
+
+Dashboard API served by `meowsight-api` (port 8080):
+
+- `internal/handler/httpapi/dashboard.go` — REST handlers for agents, metrics, audit
+- `internal/adapter/clickhouse/metric_reader.go` — ClickHouse read queries (aggregation, audit logs)
+- Endpoints: `GET /api/v1/agents`, `GET /api/v1/metrics/summary`, `GET /api/v1/audit`, `GET /healthz`
+- All endpoints filter by `tenant_id` query param (defaults to "default")
+- Metrics summary supports `from`/`to` (RFC3339) time range (default: last 24h)
+- Audit logs support `limit`/`offset` pagination (max 100 per page)
+- Agent liveness: `active` field = `last_seen_at` within last 10 minutes
+
 ## LLM Proxy (Implemented)
 
 The proxy is the core product. Key files:
