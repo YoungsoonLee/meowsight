@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MeowSight Dashboard</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0f1117; color: #e1e4e8; }
+        a { color: #58a6ff; text-decoration: none; }
+
+        /* Header */
+        .header { background: #161b22; border-bottom: 1px solid #30363d; padding: 16px 24px; display: flex; align-items: center; justify-content: space-between; }
+        .header h1 { font-size: 20px; font-weight: 600; }
+        .header h1 span { color: #8b949e; font-weight: 400; margin-left: 8px; font-size: 14px; }
+        .tenant-select { display: flex; align-items: center; gap: 8px; }
+        .tenant-select label { color: #8b949e; font-size: 13px; }
+        .tenant-select input { background: #0d1117; border: 1px solid #30363d; color: #e1e4e8; padding: 6px 12px; border-radius: 6px; font-size: 13px; width: 180px; }
+        .tenant-select button { background: #238636; color: #fff; border: none; padding: 6px 16px; border-radius: 6px; cursor: pointer; font-size: 13px; }
+        .tenant-select button:hover { background: #2ea043; }
+
+        /* Layout */
+        .container { max-width: 1280px; margin: 0 auto; padding: 24px; }
+
+        /* Summary cards */
+        .summary { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 24px; }
+        .card { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 20px; }
+        .card .label { color: #8b949e; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; }
+        .card .value { font-size: 28px; font-weight: 600; }
+        .card .value.cost { color: #3fb950; }
+        .card .value.tokens { color: #58a6ff; }
+        .card .value.latency { color: #d29922; }
+        .card .value.agents { color: #bc8cff; }
+
+        /* Sections */
+        .section { background: #161b22; border: 1px solid #30363d; border-radius: 8px; margin-bottom: 24px; }
+        .section-header { padding: 16px 20px; border-bottom: 1px solid #30363d; display: flex; align-items: center; justify-content: space-between; }
+        .section-header h2 { font-size: 16px; font-weight: 600; }
+        .section-header .badge { background: #30363d; color: #8b949e; padding: 2px 8px; border-radius: 10px; font-size: 12px; }
+
+        /* Table */
+        table { width: 100%; border-collapse: collapse; }
+        th { text-align: left; padding: 10px 20px; color: #8b949e; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 500; border-bottom: 1px solid #30363d; }
+        td { padding: 12px 20px; border-bottom: 1px solid #21262d; font-size: 14px; }
+        tr:hover { background: #1c2128; }
+
+        /* Status badges */
+        .status { display: inline-block; padding: 2px 10px; border-radius: 10px; font-size: 12px; font-weight: 500; }
+        .status.active { background: #0d3321; color: #3fb950; }
+        .status.inactive { background: #3d1d00; color: #d29922; }
+
+        /* Loading & empty */
+        .loading { text-align: center; padding: 40px; color: #8b949e; }
+        .empty { text-align: center; padding: 40px; color: #484f58; }
+
+        /* Cost bar */
+        .cost-bar { height: 6px; background: #21262d; border-radius: 3px; margin-top: 4px; }
+        .cost-bar-fill { height: 100%; background: #3fb950; border-radius: 3px; transition: width 0.3s; }
+
+        /* Responsive */
+        @media (max-width: 768px) { .summary { grid-template-columns: repeat(2, 1fr); } }
+        @media (max-width: 480px) { .summary { grid-template-columns: 1fr; } }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>MeowSight <span>Dashboard</span></h1>
+        <div class="tenant-select">
+            <label for="tenant">Tenant:</label>
+            <input type="text" id="tenant" value="default" placeholder="tenant ID">
+            <button onclick="loadDashboard()">Load</button>
+        </div>
+    </div>
+
+    <div class="container">
+        <!-- Summary Cards -->
+        <div class="summary">
+            <div class="card">
+                <div class="label">Total Cost (24h)</div>
+                <div class="value cost" id="total-cost">$0.00</div>
+            </div>
+            <div class="card">
+                <div class="label">Total Tokens (24h)</div>
+                <div class="value tokens" id="total-tokens">0</div>
+            </div>
+            <div class="card">
+                <div class="label">Avg Latency</div>
+                <div class="value latency" id="avg-latency">0ms</div>
+            </div>
+            <div class="card">
+                <div class="label">Active Agents</div>
+                <div class="value agents" id="active-agents">0</div>
+            </div>
+        </div>
+
+        <!-- Agents Section -->
+        <div class="section">
+            <div class="section-header">
+                <h2>Agents</h2>
+                <span class="badge" id="agent-count">0 agents</span>
+            </div>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Agent</th>
+                        <th>Status</th>
+                        <th>Provider</th>
+                        <th>Model</th>
+                        <th>Requests</th>
+                        <th>Last Seen</th>
+                    </tr>
+                </thead>
+                <tbody id="agents-table">
+                    <tr><td colspan="6" class="loading">Loading agents...</td></tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Cost Breakdown Section -->
+        <div class="section">
+            <div class="section-header">
+                <h2>Cost Breakdown</h2>
+                <span class="badge" id="cost-period">Last 24h</span>
+            </div>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Agent</th>
+                        <th>Model</th>
+                        <th>Requests</th>
+                        <th>Input Tokens</th>
+                        <th>Output Tokens</th>
+                        <th>Cost</th>
+                        <th>Avg Latency</th>
+                    </tr>
+                </thead>
+                <tbody id="cost-table">
+                    <tr><td colspan="7" class="loading">Loading metrics...</td></tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Audit Logs Section -->
+        <div class="section">
+            <div class="section-header">
+                <h2>Recent Audit Logs</h2>
+                <span class="badge" id="audit-count">0 entries</span>
+            </div>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Time</th>
+                        <th>Agent</th>
+                        <th>Provider</th>
+                        <th>Model</th>
+                        <th>Tokens (in/out)</th>
+                        <th>Cost</th>
+                        <th>Latency</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody id="audit-table">
+                    <tr><td colspan="8" class="loading">Loading audit logs...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = window.location.origin;
+
+        function getTenantID() {
+            return document.getElementById('tenant').value || 'default';
+        }
+
+        async function fetchJSON(url) {
+            try {
+                const resp = await fetch(url);
+                if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                return await resp.json();
+            } catch (err) {
+                console.error('Fetch error:', err);
+                return null;
+            }
+        }
+
+        function formatNumber(n) {
+            if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M';
+            if (n >= 1000) return (n / 1000).toFixed(1) + 'K';
+            return Math.round(n).toLocaleString();
+        }
+
+        function formatCost(n) {
+            return '$' + n.toFixed(4);
+        }
+
+        function timeAgo(dateStr) {
+            const now = new Date();
+            const date = new Date(dateStr);
+            const diff = Math.floor((now - date) / 1000);
+            if (diff < 60) return diff + 's ago';
+            if (diff < 3600) return Math.floor(diff / 60) + 'm ago';
+            if (diff < 86400) return Math.floor(diff / 3600) + 'h ago';
+            return Math.floor(diff / 86400) + 'd ago';
+        }
+
+        function formatTime(dateStr) {
+            const d = new Date(dateStr);
+            return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        }
+
+        async function loadAgents() {
+            const tenantID = getTenantID();
+            const data = await fetchJSON(`${API_BASE}/api/v1/agents?tenant_id=${tenantID}`);
+            const tbody = document.getElementById('agents-table');
+
+            if (!data || !data.agents || data.agents.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="6" class="empty">No agents discovered yet</td></tr>';
+                document.getElementById('agent-count').textContent = '0 agents';
+                document.getElementById('active-agents').textContent = '0';
+                return;
+            }
+
+            const activeCount = data.agents.filter(a => a.active).length;
+            document.getElementById('agent-count').textContent = `${data.total} agents`;
+            document.getElementById('active-agents').textContent = activeCount;
+
+            tbody.innerHTML = data.agents.map(a => `
+                <tr>
+                    <td><strong>${a.agent_id}</strong></td>
+                    <td><span class="status ${a.active ? 'active' : 'inactive'}">${a.active ? 'Active' : 'Inactive'}</span></td>
+                    <td>${a.provider || '-'}</td>
+                    <td>${a.model || '-'}</td>
+                    <td>${formatNumber(a.request_count)}</td>
+                    <td>${timeAgo(a.last_seen_at)}</td>
+                </tr>
+            `).join('');
+        }
+
+        async function loadMetrics() {
+            const tenantID = getTenantID();
+            const now = new Date();
+            const from = new Date(now - 24 * 60 * 60 * 1000).toISOString();
+            const to = now.toISOString();
+
+            const data = await fetchJSON(`${API_BASE}/api/v1/metrics/summary?tenant_id=${tenantID}&from=${from}&to=${to}`);
+            const tbody = document.getElementById('cost-table');
+
+            if (!data || !data.breakdown || data.breakdown.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="7" class="empty">No metrics data yet</td></tr>';
+                document.getElementById('total-cost').textContent = '$0.00';
+                document.getElementById('total-tokens').textContent = '0';
+                document.getElementById('avg-latency').textContent = '0ms';
+                return;
+            }
+
+            document.getElementById('total-cost').textContent = formatCost(data.total_cost_usd);
+            document.getElementById('total-tokens').textContent = formatNumber(data.total_input_tokens + data.total_output_tokens);
+
+            const totalLatency = data.breakdown.reduce((sum, b) => sum + b.avg_latency_ms, 0);
+            const avgLatency = totalLatency / data.breakdown.length;
+            document.getElementById('avg-latency').textContent = Math.round(avgLatency) + 'ms';
+
+            const maxCost = Math.max(...data.breakdown.map(b => b.total_cost_usd));
+
+            tbody.innerHTML = data.breakdown.map(b => `
+                <tr>
+                    <td><strong>${b.agent_id}</strong></td>
+                    <td>${b.model}</td>
+                    <td>${formatNumber(b.request_count)}</td>
+                    <td>${formatNumber(b.total_input_tokens)}</td>
+                    <td>${formatNumber(b.total_output_tokens)}</td>
+                    <td>
+                        ${formatCost(b.total_cost_usd)}
+                        <div class="cost-bar"><div class="cost-bar-fill" style="width: ${maxCost > 0 ? (b.total_cost_usd / maxCost * 100) : 0}%"></div></div>
+                    </td>
+                    <td>${Math.round(b.avg_latency_ms)}ms</td>
+                </tr>
+            `).join('');
+        }
+
+        async function loadAuditLogs() {
+            const tenantID = getTenantID();
+            const data = await fetchJSON(`${API_BASE}/api/v1/audit?tenant_id=${tenantID}&limit=20`);
+            const tbody = document.getElementById('audit-table');
+
+            if (!data || !data.logs || data.logs.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="8" class="empty">No audit logs yet</td></tr>';
+                document.getElementById('audit-count').textContent = '0 entries';
+                return;
+            }
+
+            document.getElementById('audit-count').textContent = `${data.logs.length} entries`;
+
+            tbody.innerHTML = data.logs.map(l => `
+                <tr>
+                    <td>${formatTime(l.timestamp)}</td>
+                    <td>${l.agent_id}</td>
+                    <td>${l.provider}</td>
+                    <td>${l.model}</td>
+                    <td>${formatNumber(l.input_tokens)} / ${formatNumber(l.output_tokens)}</td>
+                    <td>${formatCost(l.cost_usd)}</td>
+                    <td>${l.latency_ms}ms</td>
+                    <td><span class="status ${l.status_code < 400 ? 'active' : 'inactive'}">${l.status_code}</span></td>
+                </tr>
+            `).join('');
+        }
+
+        async function loadDashboard() {
+            await Promise.all([loadAgents(), loadMetrics(), loadAuditLogs()]);
+        }
+
+        // Auto-refresh every 30 seconds
+        loadDashboard();
+        setInterval(loadDashboard, 30000);
+
+        // Load on Enter key in tenant input
+        document.getElementById('tenant').addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') loadDashboard();
+        });
+    </script>
+</body>
+</html>

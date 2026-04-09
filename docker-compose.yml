@@ -74,6 +74,83 @@ services:
       timeout: 5s
       retries: 5
 
+  meowsight-api:
+    build:
+      context: .
+      dockerfile: deploy/docker/Dockerfile.api
+    ports:
+      - "8080:8080"
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: meowsight
+      POSTGRES_PASSWORD: meowsight
+      POSTGRES_DB: meowsight
+      CLICKHOUSE_HOST: clickhouse
+      CLICKHOUSE_PORT: 9000
+      CLICKHOUSE_DB: meowsight
+      CLICKHOUSE_USER: default
+      CLICKHOUSE_PASSWORD: ""
+    depends_on:
+      postgres:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+
+  meowsight-ingest:
+    build:
+      context: .
+      dockerfile: deploy/docker/Dockerfile.ingest
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_USER: meowsight
+      POSTGRES_PASSWORD: meowsight
+      POSTGRES_DB: meowsight
+      CLICKHOUSE_HOST: clickhouse
+      CLICKHOUSE_DB: meowsight
+      NATS_URL: nats://nats:4222
+    depends_on:
+      meowsight-api:
+        condition: service_started
+      nats:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+
+  mock-openai:
+    image: python:3.12-alpine
+    command: ["python", "/app/mock_openai.py"]
+    volumes:
+      - ./deploy/mock:/app:ro
+    ports:
+      - "11500:11500"
+
+  meowsight-proxy:
+    build:
+      context: .
+      dockerfile: deploy/docker/Dockerfile.proxy
+    ports:
+      - "8081:8081"
+    environment:
+      PROXY_PORT: 8081
+      POSTGRES_HOST: postgres
+      POSTGRES_USER: meowsight
+      POSTGRES_PASSWORD: meowsight
+      POSTGRES_DB: meowsight
+      NATS_URL: nats://nats:4222
+      OPENAI_BASE_URL: http://mock-openai:11500
+    depends_on:
+      meowsight-api:
+        condition: service_started
+      nats:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      mock-openai:
+        condition: service_started
+
 volumes:
   postgres_data:
   clickhouse_data:

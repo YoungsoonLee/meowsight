@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"net/http"
 	"os"
@@ -14,6 +15,8 @@ import (
 	pgadapter "github.com/YoungsoonLee/meowsight/internal/adapter/postgres"
 	"github.com/YoungsoonLee/meowsight/internal/config"
 	"github.com/YoungsoonLee/meowsight/internal/handler/httpapi"
+	"github.com/YoungsoonLee/meowsight/internal/migrate"
+	"github.com/YoungsoonLee/meowsight/web"
 )
 
 func main() {
@@ -27,6 +30,23 @@ func main() {
 	}
 
 	ctx := context.Background()
+
+	// Auto-run migrations on startup so a fresh `docker compose up` is enough
+	// to bootstrap the entire stack.
+	if err := migrate.RunPostgres(ctx, cfg.Postgres.DSN()); err != nil {
+		slog.Error("postgres migrations failed", "error", err)
+		os.Exit(1)
+	}
+	if err := migrate.RunClickHouse(ctx,
+		cfg.ClickHouse.Host,
+		cfg.ClickHouse.Port,
+		cfg.ClickHouse.Database,
+		cfg.ClickHouse.User,
+		cfg.ClickHouse.Password,
+	); err != nil {
+		slog.Error("clickhouse migrations failed", "error", err)
+		os.Exit(1)
+	}
 
 	// Connect to PostgreSQL
 	agentRepo, err := pgadapter.NewAgentRepo(ctx, cfg.Postgres.DSN())
@@ -61,6 +81,10 @@ func main() {
 
 	dashboard := httpapi.NewDashboardHandler(agentRepo, metricReader)
 	dashboard.RegisterRoutes(mux)
+
+	// Serve embedded web dashboard
+	staticFS, _ := fs.Sub(web.StaticFS, "static")
+	mux.Handle("GET /", http.FileServer(http.FS(staticFS)))
 
 	srv := &http.Server{
 		Addr:         fmt.Sprintf(":%d", cfg.Server.HTTPPort),

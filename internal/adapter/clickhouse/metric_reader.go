@@ -84,7 +84,7 @@ func (r *MetricReader) GetSummary(ctx context.Context, tenantID string, from, to
 			sumIf(value, metric_name = 'cost_usd') AS total_cost,
 			avgIf(value, metric_name = 'latency_ms') AS avg_latency,
 			sumIf(value, metric_name = 'error_count') AS error_count,
-			count() / 4 AS request_count
+			toUInt64(count() / 4) AS request_count
 		FROM metrics
 		WHERE tenant_id = $1 AND timestamp >= $2 AND timestamp <= $3
 		GROUP BY tenant_id, agent_id, provider, model

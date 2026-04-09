@@ -23,6 +23,16 @@
 
 ---
 
+<p align="center">
+  <img src="assets/dashboard.png" alt="MeowSight Dashboard — real-time cost, latency, and audit visibility for every AI agent" width="100%">
+</p>
+
+<p align="center">
+  <em>Real-time cost, token usage, latency, and audit visibility for every AI agent — out of the box, with one env var change.</em>
+</p>
+
+---
+
 > The same logic as selling pickaxes during a gold rush — the more agents there are, the more valuable this infrastructure becomes.
 
 ---
@@ -469,6 +479,30 @@ make run-api   # or: ./bin/meowsight-api (port 8080)
 
 ---
 
+## Web Dashboard
+
+The web dashboard is embedded directly in the `meowsight-api` binary — no separate frontend build or Node.js required.
+
+**Access:** `http://localhost:8080/` after starting the API server.
+
+### Features
+
+- **Summary cards** — Total cost, tokens, average latency, active agent count (last 24h)
+- **Agents table** — All discovered agents with active/inactive status, provider, model, request count
+- **Cost breakdown** — Per-agent cost with visual bar chart, token counts, latency
+- **Audit logs** — Recent LLM requests with timestamps, tokens, cost, status codes
+- **Tenant switcher** — Filter all data by tenant ID
+- **Auto-refresh** — Dashboard updates every 30 seconds
+
+### Tech
+
+- Vanilla HTML/CSS/JS — no framework, no build step
+- Embedded via Go `embed` package — compiled into the binary
+- Calls the REST API endpoints (`/api/v1/*`) for all data
+- Dark theme, responsive layout
+
+---
+
 ## Core Features
 
 | Domain | Description | How |
@@ -644,7 +678,7 @@ Model pricing is managed in `configs/pricing.json` — no code changes or rebuil
 - [x] ClickHouse audit writer (request/response logs) ✅
 - [x] Agent auto-discovery from proxy traffic ✅
 - [x] REST API for dashboard queries ✅
-- [ ] Web dashboard (cost trends, agent status, audit logs)
+- [x] Web dashboard (cost trends, agent status, audit logs) ✅
 - [x] API key authentication for tenants ✅
 - [ ] Tenant registration and management
 - [ ] All-in-one `docker compose up` for full local deployment (proxy, api, ingest, worker + infra)

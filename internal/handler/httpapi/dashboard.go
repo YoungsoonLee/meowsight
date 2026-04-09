@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"time"
@@ -97,6 +98,7 @@ func (h *DashboardHandler) MetricsSummary(w http.ResponseWriter, r *http.Request
 
 	summary, err := h.metricReader.GetSummary(r.Context(), tenantID, from, to)
 	if err != nil {
+		slog.Error("metrics summary query failed", "error", err, "tenant_id", tenantID)
 		writeError(w, http.StatusInternalServerError, "failed to query metrics")
 		return
 	}

@@ -40,6 +40,19 @@ func NewConsumer(ctx context.Context, natsURL, consumerName string, handlers ...
 		return nil, fmt.Errorf("jetstream new: %w", err)
 	}
 
+	// Ensure the EVENTS stream exists. The proxy normally creates it on
+	// startup, but ingest may boot first — make it idempotent here so
+	// startup ordering doesn't matter.
+	if _, err := js.CreateOrUpdateStream(ctx, jetstream.StreamConfig{
+		Name:      streamName,
+		Subjects:  []string{subjectPrefix + ".>"},
+		Retention: jetstream.WorkQueuePolicy,
+		MaxAge:    72 * time.Hour,
+		Storage:   jetstream.FileStorage,
+	}); err != nil {
+		return nil, fmt.Errorf("jetstream ensure stream: %w", err)
+	}
+
 	cons, err := js.CreateOrUpdateConsumer(ctx, streamName, jetstream.ConsumerConfig{
 		Name:          consumerName,
 		Durable:       consumerName,

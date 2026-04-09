@@ -10,5 +10,6 @@ RUN CGO_ENABLED=0 go build -trimpath -o /bin/meowsight-proxy ./cmd/meowsight-pro
 FROM scratch
 COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 COPY --from=builder /bin/meowsight-proxy /meowsight-proxy
+COPY --from=builder /app/configs /configs
 EXPOSE 8081
 ENTRYPOINT ["/meowsight-proxy"]

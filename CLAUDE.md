@@ -65,6 +65,15 @@ handler → app → domain ← adapter
 - **Object Storage**: S3/MinIO (audit archive)
 - **CI**: GitHub Actions (go vet + staticcheck)
 
+## Web Dashboard (Implemented)
+
+- `web/static/index.html` — Embedded web dashboard (vanilla HTML/CSS/JS, dark theme)
+- `web/embed.go` — Go embed directive for static assets
+- Served at `/` by `meowsight-api` — no separate frontend build needed
+- Features: summary cards, agents table (active/inactive), cost breakdown, audit logs
+- Auto-refresh every 30 seconds, tenant switcher, responsive layout
+- Calls REST API endpoints (`/api/v1/*`) for all data
+
 ## REST API (Implemented)
 
 Dashboard API served by `meowsight-api` (port 8080):
