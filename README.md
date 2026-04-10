@@ -204,6 +204,66 @@ Request arrives at proxy
 | **API Key** | `base_url` + `api_key` | Cursor, Windsurf, tools with limited config |
 | **None** | `base_url` only | Quick testing (no agent attribution) |
 
+### Tenant & Agent Lifecycle
+
+MeowSight supports two operational modes that work together seamlessly:
+
+#### Quick Start (No Setup Required)
+
+Agents can start using the proxy immediately — no tenant registration needed:
+
+```
+Agent sends request with X-Meowsight-Tenant: "acme-corp"
+  → Proxy forwards to LLM provider
+  → Agent auto-discovered in agents table
+  → Metrics & audit logged immediately
+  → Dashboard shows the agent (status: Unlinked)
+```
+
+#### Full Setup (Recommended for Production)
+
+Register a tenant first to enable budget enforcement, allowlists, and tenant-level controls:
+
+```
+Step 1: Register tenant
+  POST /api/v1/tenants  {"name": "acme-corp", "plan": "pro"}
+  → Tenant created with API key (mst-...)
+
+Step 2: Agents connect via proxy
+  - Headers: X-Meowsight-Tenant: "acme-corp"  ← must match tenant name
+  - API Key: use the mst-* key issued for this tenant
+
+Step 3: Auto-linking
+  Agent auto-discovered → tenant name matches → agents.tenant_id FK set automatically
+  → Dashboard shows the agent (status: Linked)
+  → Budget enforcement, allowlists, alerts apply to this agent
+```
+
+#### How Auto-Linking Works
+
+```
+Agent request arrives at proxy
+  │
+  ├─ Extract tenant_id ("acme-corp") from headers or API key
+  │
+  ├─ Ingest writes to agents table (UPSERT)
+  │    └─ SELECT id FROM tenants WHERE name = "acme-corp"
+  │         ├─ Found? → Set agents.tenant_id FK → "Linked"
+  │         └─ Not found? → tenant_id stays NULL → "Unlinked"
+  │
+  └─ Unlinked agents work normally (metrics, audit, dashboard)
+     but tenant-level controls (budget, allowlist) don't apply
+```
+
+**Key rule:** The `X-Meowsight-Tenant` header value (or API key's tenant) must match the registered `tenant.name` for auto-linking.
+
+| Scenario | Tenant Registered? | Agent Status | Budget/Controls |
+|---|---|---|---|
+| Header: `acme-corp`, tenant `acme-corp` exists | Yes | Linked | Applied |
+| Header: `acme-corp`, no tenant registered | No | Unlinked | Not applied |
+| API key: `mst-...` mapped to `acme-corp` | Yes | Linked | Applied |
+| No headers, no API key | N/A | Unlinked (`default/unknown`) | Not applied |
+
 ---
 
 ## Event Pipeline (NATS JetStream)
@@ -463,6 +523,109 @@ curl "http://localhost:8080/api/v1/audit?tenant_id=my-company&limit=10&offset=0"
 }
 ```
 
+#### Tenant Management
+
+##### `POST /api/v1/tenants` — Register a new tenant
+
+```bash
+curl -X POST http://localhost:8080/api/v1/tenants \
+  -H "Content-Type: application/json" \
+  -d '{"name":"acme-corp","plan":"pro"}'
+```
+
+```json
+{
+  "id": "550e8400-e29b-41d4-a716-446655440000",
+  "name": "acme-corp",
+  "plan": "pro",
+  "api_key": "mst-a1b2c3d4...",
+  "created_at": "2026-04-09T10:00:00Z"
+}
+```
+
+> The `api_key` is only shown once at creation time. Store it securely.
+
+##### `GET /api/v1/tenants` — List all tenants
+
+```bash
+curl http://localhost:8080/api/v1/tenants
+```
+
+##### `GET /api/v1/tenants/{id}` — Get tenant details
+
+```bash
+curl http://localhost:8080/api/v1/tenants/550e8400-e29b-41d4-a716-446655440000
+```
+
+##### `PUT /api/v1/tenants/{id}` — Update tenant
+
+```bash
+curl -X PUT http://localhost:8080/api/v1/tenants/550e8400-... \
+  -H "Content-Type: application/json" \
+  -d '{"name":"acme-corp","plan":"enterprise"}'
+```
+
+##### `DELETE /api/v1/tenants/{id}` — Delete tenant
+
+```bash
+curl -X DELETE http://localhost:8080/api/v1/tenants/550e8400-...
+```
+
+##### `POST /api/v1/tenants/{id}/rotate-key` — Rotate API key
+
+```bash
+curl -X POST http://localhost:8080/api/v1/tenants/550e8400-.../rotate-key
+```
+
+Returns a new API key. The old key is immediately invalidated.
+
+#### Agent Management
+
+##### `GET /api/v1/agents/all` — List all agents (across tenants)
+
+```bash
+curl http://localhost:8080/api/v1/agents/all
+```
+
+```json
+{
+  "total": 3,
+  "agents": [
+    {
+      "id": "uuid",
+      "tenant_id": "default",
+      "agent_id": "code-reviewer",
+      "name": "Code Reviewer Bot",
+      "status": "active",
+      "provider": "openai",
+      "model": "gpt-4o",
+      "request_count": 1523,
+      "active": true
+    }
+  ]
+}
+```
+
+##### `GET /api/v1/agents/{id}` — Get agent details
+
+```bash
+curl http://localhost:8080/api/v1/agents/550e8400-...
+```
+
+##### `PUT /api/v1/agents/{id}` — Update agent (name, status)
+
+```bash
+curl -X PUT http://localhost:8080/api/v1/agents/550e8400-... \
+  -H "Content-Type: application/json" \
+  -d '{"name":"Code Reviewer Bot","status":"active"}'
+```
+
+##### `DELETE /api/v1/agents/{id}` — Delete agent
+
+```bash
+curl -X DELETE http://localhost:8080/api/v1/agents/550e8400-...
+```
+
 #### `GET /healthz` — Health check
 
 ```bash
@@ -485,19 +648,36 @@ The web dashboard is embedded directly in the `meowsight-api` binary — no sepa
 
 **Access:** `http://localhost:8080/` after starting the API server.
 
-### Features
+### Pages
 
+The dashboard has three pages accessible via tab navigation:
+
+#### Dashboard (default)
 - **Summary cards** — Total cost, tokens, average latency, active agent count (last 24h)
 - **Agents table** — All discovered agents with active/inactive status, provider, model, request count
 - **Cost breakdown** — Per-agent cost with visual bar chart, token counts, latency
 - **Audit logs** — Recent LLM requests with timestamps, tokens, cost, status codes
-- **Tenant switcher** — Filter all data by tenant ID
-- **Auto-refresh** — Dashboard updates every 30 seconds
+- **Auto-refresh** — Updates every 30 seconds
+
+#### Tenants
+- **Tenant list** — Name, plan (free/pro/enterprise badges), creation date
+- **Create tenant** — Modal form, auto-generates API key (shown once)
+- **Edit tenant** — Update name and plan
+- **Rotate API key** — Generate new key, invalidate old one
+- **Delete tenant** — Confirmation dialog
+
+#### Agents
+- **All agents** — Cross-tenant view with agent ID, name, tenant, status, provider, model, requests, last seen
+- **Edit agent** — Update name and status (active/inactive/disabled)
+- **Delete agent** — Confirmation dialog
 
 ### Tech
 
 - Vanilla HTML/CSS/JS — no framework, no build step
 - Embedded via Go `embed` package — compiled into the binary
+- Tab-based SPA navigation (no page reload)
+- Modals for create/edit/delete/key-rotation actions
+- XSS prevention via text content escaping
 - Calls the REST API endpoints (`/api/v1/*`) for all data
 - Dark theme, responsive layout
 
@@ -680,7 +860,7 @@ Model pricing is managed in `configs/pricing.json` — no code changes or rebuil
 - [x] REST API for dashboard queries ✅
 - [x] Web dashboard (cost trends, agent status, audit logs) ✅
 - [x] API key authentication for tenants ✅
-- [ ] Tenant registration and management
+- [x] Tenant registration and management ✅
 - [ ] All-in-one `docker compose up` for full local deployment (proxy, api, ingest, worker + infra)
 
 ### v0.3 — Budget & Security

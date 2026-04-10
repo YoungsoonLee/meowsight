@@ -70,8 +70,11 @@ handler → app → domain ← adapter
 - `web/static/index.html` — Embedded web dashboard (vanilla HTML/CSS/JS, dark theme)
 - `web/embed.go` — Go embed directive for static assets
 - Served at `/` by `meowsight-api` — no separate frontend build needed
-- Features: summary cards, agents table (active/inactive), cost breakdown, audit logs
-- Auto-refresh every 30 seconds, tenant switcher, responsive layout
+- Tab navigation: Dashboard (metrics overview), Tenants (CRUD + key rotation), Agents (management)
+- Dashboard: summary cards, agents table, cost breakdown, audit logs, auto-refresh 30s
+- Tenants page: list, create (modal + API key display), edit, delete, rotate key
+- Agents page: cross-tenant list, edit (name/status), delete with confirmation
+- Modals for all create/edit/delete/rotate actions, XSS prevention via escaping
 - Calls REST API endpoints (`/api/v1/*`) for all data
 
 ## REST API (Implemented)
@@ -79,8 +82,15 @@ handler → app → domain ← adapter
 Dashboard API served by `meowsight-api` (port 8080):
 
 - `internal/handler/httpapi/dashboard.go` — REST handlers for agents, metrics, audit
+- `internal/handler/httpapi/tenant.go` — REST handlers for tenant CRUD + API key rotation
+- `internal/handler/httpapi/agent.go` — REST handlers for agent management (get, update, delete, list all)
+- `internal/adapter/postgres/tenant_repo.go` — PostgreSQL tenant CRUD (create, get, list, update, delete, rotate key)
+- `internal/adapter/postgres/agent_repo.go` — PostgreSQL agent CRUD (upsert, get, update, delete, list by tenant, list all)
 - `internal/adapter/clickhouse/metric_reader.go` — ClickHouse read queries (aggregation, audit logs)
-- Endpoints: `GET /api/v1/agents`, `GET /api/v1/metrics/summary`, `GET /api/v1/audit`, `GET /healthz`
+- Dashboard endpoints: `GET /api/v1/agents`, `GET /api/v1/metrics/summary`, `GET /api/v1/audit`, `GET /healthz`
+- Tenant endpoints: `POST/GET /api/v1/tenants`, `GET/PUT/DELETE /api/v1/tenants/{id}`, `POST /api/v1/tenants/{id}/rotate-key`
+- Agent endpoints: `GET /api/v1/agents/all`, `GET/PUT/DELETE /api/v1/agents/{id}`
+- Tenant API key: `mst-` prefix, SHA-256 hashed in DB, plaintext shown only at creation/rotation
 - All endpoints filter by `tenant_id` query param (defaults to "default")
 - Metrics summary supports `from`/`to` (RFC3339) time range (default: last 24h)
 - Audit logs support `limit`/`offset` pagination (max 100 per page)
@@ -145,14 +155,16 @@ The proxy is the core product. Key files:
 - All writers run in same `meowsight-ingest` as one NATS consumer (`ingest-writer`)
 - Audit log TTL: 30 days in ClickHouse (hot), planned S3 Parquet export (cold)
 
-### Agent Auto-Discovery
+### Agent Auto-Discovery & Tenant Auto-Linking
 
 - `internal/adapter/postgres/agent_repo.go` — PostgreSQL agent registry (UPSERT into `agents` table)
 - Single `agents` table: supports both auto-discovery (string-based external IDs) and managed registration (UUID tenant FK)
-- PostgreSQL only: no Redis for agent tracking (simplicity, sufficient performance for current scale)
+- **Auto-linking**: on UPSERT, `SELECT id FROM tenants WHERE name = external_tenant_id` — if a matching tenant exists, `agents.tenant_id` FK is set automatically
+- Auto-linking works for both header mode (`X-Meowsight-Tenant` = tenant name) and API key mode (key's tenant = tenant name)
+- Unlinked agents (no matching tenant) work normally for metrics/audit, but tenant-level controls (budget, allowlist) won't apply
+- `COALESCE` on update preserves existing tenant link if tenant was deleted and re-created
 - Agent liveness: `WHERE last_seen_at > now() - interval '10 minutes'`
-- Agent lifecycle: discovered → tracked in PG → tenant registers → linked via tenant_id FK
-- Redis reserved for future use: rate limiting, caching (v0.3+)
+- PostgreSQL only: no Redis for agent tracking (simplicity, sufficient performance for current scale)
 - Dependencies: `github.com/jackc/pgx/v5`
 
 ### Configuration (env vars)

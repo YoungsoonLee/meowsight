@@ -82,6 +82,13 @@ func main() {
 	dashboard := httpapi.NewDashboardHandler(agentRepo, metricReader)
 	dashboard.RegisterRoutes(mux)
 
+	tenantRepo := pgadapter.NewTenantRepo(agentRepo.Pool())
+	tenantHandler := httpapi.NewTenantHandler(tenantRepo)
+	tenantHandler.RegisterRoutes(mux)
+
+	agentHandler := httpapi.NewAgentHandler(agentRepo)
+	agentHandler.RegisterRoutes(mux)
+
 	// Serve embedded web dashboard
 	staticFS, _ := fs.Sub(web.StaticFS, "static")
 	mux.Handle("GET /", http.FileServer(http.FS(staticFS)))

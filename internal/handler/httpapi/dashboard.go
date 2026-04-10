@@ -49,6 +49,7 @@ func (h *DashboardHandler) ListAgents(w http.ResponseWriter, r *http.Request) {
 	// Determine active status based on last_seen_at
 	type agentResponse struct {
 		ID           string    `json:"id"`
+		TenantUUID   *string   `json:"tenant_uuid,omitempty"`
 		TenantID     string    `json:"tenant_id"`
 		AgentID      string    `json:"agent_id"`
 		Name         string    `json:"name"`
@@ -59,6 +60,7 @@ func (h *DashboardHandler) ListAgents(w http.ResponseWriter, r *http.Request) {
 		LastSeenAt   time.Time `json:"last_seen_at"`
 		RequestCount int64     `json:"request_count"`
 		Active       bool      `json:"active"`
+		Linked       bool      `json:"linked"`
 	}
 
 	cutoff := time.Now().Add(-10 * time.Minute)
@@ -66,6 +68,7 @@ func (h *DashboardHandler) ListAgents(w http.ResponseWriter, r *http.Request) {
 	for _, a := range agents {
 		result = append(result, agentResponse{
 			ID:           a.ID,
+			TenantUUID:   a.TenantUUID,
 			TenantID:     a.ExternalTenantID,
 			AgentID:      a.ExternalAgentID,
 			Name:         a.Name,
@@ -76,6 +79,7 @@ func (h *DashboardHandler) ListAgents(w http.ResponseWriter, r *http.Request) {
 			LastSeenAt:   a.LastSeenAt,
 			RequestCount: a.RequestCount,
 			Active:       a.LastSeenAt.After(cutoff),
+			Linked:       a.TenantUUID != nil,
 		})
 	}
 

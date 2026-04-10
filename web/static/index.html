@@ -11,16 +11,20 @@
 
         /* Header */
         .header { background: #161b22; border-bottom: 1px solid #30363d; padding: 16px 24px; display: flex; align-items: center; justify-content: space-between; }
+        .header-left { display: flex; align-items: center; gap: 24px; }
         .header h1 { font-size: 20px; font-weight: 600; }
         .header h1 span { color: #8b949e; font-weight: 400; margin-left: 8px; font-size: 14px; }
-        .tenant-select { display: flex; align-items: center; gap: 8px; }
-        .tenant-select label { color: #8b949e; font-size: 13px; }
-        .tenant-select input { background: #0d1117; border: 1px solid #30363d; color: #e1e4e8; padding: 6px 12px; border-radius: 6px; font-size: 13px; width: 180px; }
-        .tenant-select button { background: #238636; color: #fff; border: none; padding: 6px 16px; border-radius: 6px; cursor: pointer; font-size: 13px; }
-        .tenant-select button:hover { background: #2ea043; }
+
+        /* Tab navigation */
+        .tabs { display: flex; gap: 4px; }
+        .tab { background: none; border: none; color: #8b949e; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 500; }
+        .tab:hover { color: #e1e4e8; background: #21262d; }
+        .tab.active { color: #e1e4e8; background: #30363d; }
 
         /* Layout */
         .container { max-width: 1280px; margin: 0 auto; padding: 24px; }
+        .page { display: none; }
+        .page.active { display: block; }
 
         /* Summary cards */
         .summary { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 24px; }
@@ -57,6 +61,40 @@
         .cost-bar { height: 6px; background: #21262d; border-radius: 3px; margin-top: 4px; }
         .cost-bar-fill { height: 100%; background: #3fb950; border-radius: 3px; transition: width 0.3s; }
 
+        /* Buttons */
+        .btn { border: none; padding: 6px 16px; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 500; }
+        .btn-primary { background: #238636; color: #fff; }
+        .btn-primary:hover { background: #2ea043; }
+        .btn-danger { background: #da3633; color: #fff; }
+        .btn-danger:hover { background: #f85149; }
+        .btn-secondary { background: #30363d; color: #e1e4e8; }
+        .btn-secondary:hover { background: #3d444d; }
+        .btn-sm { padding: 4px 10px; font-size: 12px; }
+        .btn + .btn { margin-left: 6px; }
+
+        /* Action buttons in tables */
+        .actions { display: flex; gap: 4px; }
+
+        /* Modal */
+        .modal-overlay { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.6); z-index: 100; justify-content: center; align-items: center; }
+        .modal-overlay.show { display: flex; }
+        .modal { background: #161b22; border: 1px solid #30363d; border-radius: 12px; padding: 24px; width: 480px; max-width: 90vw; }
+        .modal h3 { font-size: 18px; margin-bottom: 16px; }
+        .modal .form-group { margin-bottom: 14px; }
+        .modal label { display: block; font-size: 13px; color: #8b949e; margin-bottom: 4px; }
+        .modal input, .modal select { width: 100%; background: #0d1117; border: 1px solid #30363d; color: #e1e4e8; padding: 8px 12px; border-radius: 6px; font-size: 14px; }
+        .modal .form-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px; }
+
+        /* API Key display */
+        .api-key-box { background: #0d1117; border: 1px solid #30363d; border-radius: 6px; padding: 12px; margin-top: 12px; word-break: break-all; font-family: monospace; font-size: 13px; color: #3fb950; }
+        .api-key-warning { color: #d29922; font-size: 12px; margin-top: 6px; }
+
+        /* Plan badge */
+        .plan { display: inline-block; padding: 2px 10px; border-radius: 10px; font-size: 12px; font-weight: 500; }
+        .plan.free { background: #1c2128; color: #8b949e; }
+        .plan.pro { background: #0c2d6b; color: #58a6ff; }
+        .plan.enterprise { background: #2a1637; color: #bc8cff; }
+
         /* Responsive */
         @media (max-width: 768px) { .summary { grid-template-columns: repeat(2, 1fr); } }
         @media (max-width: 480px) { .summary { grid-template-columns: 1fr; } }
@@ -64,119 +102,225 @@
 </head>
 <body>
     <div class="header">
-        <h1>MeowSight <span>Dashboard</span></h1>
-        <div class="tenant-select">
-            <label for="tenant">Tenant:</label>
-            <input type="text" id="tenant" value="default" placeholder="tenant ID">
-            <button onclick="loadDashboard()">Load</button>
+        <div class="header-left">
+            <h1>MeowSight <span>Dashboard</span></h1>
+            <div class="tabs">
+                <button class="tab active" onclick="switchPage('dashboard')">Dashboard</button>
+                <button class="tab" onclick="switchPage('tenants')">Tenants</button>
+                <button class="tab" onclick="switchPage('agents')">Agents</button>
+            </div>
         </div>
     </div>
 
     <div class="container">
-        <!-- Summary Cards -->
-        <div class="summary">
-            <div class="card">
-                <div class="label">Total Cost (24h)</div>
-                <div class="value cost" id="total-cost">$0.00</div>
+
+        <!-- ==================== DASHBOARD PAGE ==================== -->
+        <div id="page-dashboard" class="page active">
+            <div class="summary">
+                <div class="card">
+                    <div class="label">Total Cost (24h)</div>
+                    <div class="value cost" id="total-cost">$0.00</div>
+                </div>
+                <div class="card">
+                    <div class="label">Total Tokens (24h)</div>
+                    <div class="value tokens" id="total-tokens">0</div>
+                </div>
+                <div class="card">
+                    <div class="label">Avg Latency</div>
+                    <div class="value latency" id="avg-latency">0ms</div>
+                </div>
+                <div class="card">
+                    <div class="label">Active Agents</div>
+                    <div class="value agents" id="active-agents">0</div>
+                </div>
             </div>
-            <div class="card">
-                <div class="label">Total Tokens (24h)</div>
-                <div class="value tokens" id="total-tokens">0</div>
+
+            <div class="section">
+                <div class="section-header">
+                    <h2>Agents</h2>
+                    <span class="badge" id="agent-count">0 agents</span>
+                </div>
+                <table>
+                    <thead>
+                        <tr><th>Agent</th><th>Status</th><th>Provider</th><th>Model</th><th>Requests</th><th>Last Seen</th></tr>
+                    </thead>
+                    <tbody id="agents-table">
+                        <tr><td colspan="6" class="loading">Loading agents...</td></tr>
+                    </tbody>
+                </table>
             </div>
-            <div class="card">
-                <div class="label">Avg Latency</div>
-                <div class="value latency" id="avg-latency">0ms</div>
+
+            <div class="section">
+                <div class="section-header">
+                    <h2>Cost Breakdown</h2>
+                    <span class="badge" id="cost-period">Last 24h</span>
+                </div>
+                <table>
+                    <thead>
+                        <tr><th>Agent</th><th>Model</th><th>Requests</th><th>Input Tokens</th><th>Output Tokens</th><th>Cost</th><th>Avg Latency</th></tr>
+                    </thead>
+                    <tbody id="cost-table">
+                        <tr><td colspan="7" class="loading">Loading metrics...</td></tr>
+                    </tbody>
+                </table>
             </div>
-            <div class="card">
-                <div class="label">Active Agents</div>
-                <div class="value agents" id="active-agents">0</div>
+
+            <div class="section">
+                <div class="section-header">
+                    <h2>Recent Audit Logs</h2>
+                    <span class="badge" id="audit-count">0 entries</span>
+                </div>
+                <table>
+                    <thead>
+                        <tr><th>Time</th><th>Agent</th><th>Provider</th><th>Model</th><th>Tokens (in/out)</th><th>Cost</th><th>Latency</th><th>Status</th></tr>
+                    </thead>
+                    <tbody id="audit-table">
+                        <tr><td colspan="8" class="loading">Loading audit logs...</td></tr>
+                    </tbody>
+                </table>
             </div>
         </div>
 
-        <!-- Agents Section -->
-        <div class="section">
-            <div class="section-header">
-                <h2>Agents</h2>
-                <span class="badge" id="agent-count">0 agents</span>
+        <!-- ==================== TENANTS PAGE ==================== -->
+        <div id="page-tenants" class="page">
+            <div class="section">
+                <div class="section-header">
+                    <h2>Tenants</h2>
+                    <button class="btn btn-primary" onclick="showTenantModal()">+ New Tenant</button>
+                </div>
+                <table>
+                    <thead>
+                        <tr><th>Name</th><th>Plan</th><th>Created</th><th>Updated</th><th>Actions</th></tr>
+                    </thead>
+                    <tbody id="tenants-table">
+                        <tr><td colspan="5" class="loading">Loading tenants...</td></tr>
+                    </tbody>
+                </table>
             </div>
-            <table>
-                <thead>
-                    <tr>
-                        <th>Agent</th>
-                        <th>Status</th>
-                        <th>Provider</th>
-                        <th>Model</th>
-                        <th>Requests</th>
-                        <th>Last Seen</th>
-                    </tr>
-                </thead>
-                <tbody id="agents-table">
-                    <tr><td colspan="6" class="loading">Loading agents...</td></tr>
-                </tbody>
-            </table>
         </div>
 
-        <!-- Cost Breakdown Section -->
-        <div class="section">
-            <div class="section-header">
-                <h2>Cost Breakdown</h2>
-                <span class="badge" id="cost-period">Last 24h</span>
+        <!-- ==================== AGENTS PAGE ==================== -->
+        <div id="page-agents" class="page">
+            <div class="section">
+                <div class="section-header">
+                    <h2>All Agents</h2>
+                    <span class="badge" id="all-agent-count">0 agents</span>
+                </div>
+                <table>
+                    <thead>
+                        <tr><th>Agent ID</th><th>Name</th><th>Tenant</th><th>Status</th><th>Provider</th><th>Model</th><th>Requests</th><th>Last Seen</th><th>Actions</th></tr>
+                    </thead>
+                    <tbody id="all-agents-table">
+                        <tr><td colspan="9" class="loading">Loading agents...</td></tr>
+                    </tbody>
+                </table>
             </div>
-            <table>
-                <thead>
-                    <tr>
-                        <th>Agent</th>
-                        <th>Model</th>
-                        <th>Requests</th>
-                        <th>Input Tokens</th>
-                        <th>Output Tokens</th>
-                        <th>Cost</th>
-                        <th>Avg Latency</th>
-                    </tr>
-                </thead>
-                <tbody id="cost-table">
-                    <tr><td colspan="7" class="loading">Loading metrics...</td></tr>
-                </tbody>
-            </table>
         </div>
+    </div>
 
-        <!-- Audit Logs Section -->
-        <div class="section">
-            <div class="section-header">
-                <h2>Recent Audit Logs</h2>
-                <span class="badge" id="audit-count">0 entries</span>
+    <!-- ==================== MODALS ==================== -->
+
+    <!-- Tenant Create/Edit Modal -->
+    <div id="tenant-modal" class="modal-overlay" onclick="if(event.target===this)closeTenantModal()">
+        <div class="modal">
+            <h3 id="tenant-modal-title">New Tenant</h3>
+            <input type="hidden" id="tenant-edit-id">
+            <div class="form-group">
+                <label for="tenant-name">Name</label>
+                <input type="text" id="tenant-name" placeholder="e.g. acme-corp">
             </div>
-            <table>
-                <thead>
-                    <tr>
-                        <th>Time</th>
-                        <th>Agent</th>
-                        <th>Provider</th>
-                        <th>Model</th>
-                        <th>Tokens (in/out)</th>
-                        <th>Cost</th>
-                        <th>Latency</th>
-                        <th>Status</th>
-                    </tr>
-                </thead>
-                <tbody id="audit-table">
-                    <tr><td colspan="8" class="loading">Loading audit logs...</td></tr>
-                </tbody>
-            </table>
+            <div class="form-group">
+                <label for="tenant-plan">Plan</label>
+                <select id="tenant-plan">
+                    <option value="free">Free</option>
+                    <option value="pro">Pro</option>
+                    <option value="enterprise">Enterprise</option>
+                </select>
+            </div>
+            <div id="tenant-api-key-result" style="display:none">
+                <div class="api-key-box" id="tenant-api-key-value"></div>
+                <div class="api-key-warning">Store this key securely. It will not be shown again.</div>
+            </div>
+            <div class="form-actions">
+                <button class="btn btn-secondary" onclick="closeTenantModal()">Cancel</button>
+                <button class="btn btn-primary" id="tenant-save-btn" onclick="saveTenant()">Create</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Agent Edit Modal -->
+    <div id="agent-modal" class="modal-overlay" onclick="if(event.target===this)closeAgentModal()">
+        <div class="modal">
+            <h3>Edit Agent</h3>
+            <input type="hidden" id="agent-edit-id">
+            <div class="form-group">
+                <label for="agent-name">Name</label>
+                <input type="text" id="agent-name" placeholder="e.g. code-reviewer">
+            </div>
+            <div class="form-group">
+                <label for="agent-status">Status</label>
+                <select id="agent-status">
+                    <option value="active">Active</option>
+                    <option value="inactive">Inactive</option>
+                    <option value="disabled">Disabled</option>
+                </select>
+            </div>
+            <div class="form-actions">
+                <button class="btn btn-secondary" onclick="closeAgentModal()">Cancel</button>
+                <button class="btn btn-primary" onclick="saveAgent()">Save</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Confirm Delete Modal -->
+    <div id="confirm-modal" class="modal-overlay" onclick="if(event.target===this)closeConfirmModal()">
+        <div class="modal">
+            <h3 id="confirm-title">Confirm Delete</h3>
+            <p id="confirm-message" style="color:#8b949e;margin-bottom:20px"></p>
+            <div class="form-actions">
+                <button class="btn btn-secondary" onclick="closeConfirmModal()">Cancel</button>
+                <button class="btn btn-danger" id="confirm-action-btn" onclick="">Delete</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- API Key Rotate Result Modal -->
+    <div id="key-modal" class="modal-overlay" onclick="if(event.target===this)closeKeyModal()">
+        <div class="modal">
+            <h3>New API Key</h3>
+            <div class="api-key-box" id="rotated-key-value"></div>
+            <div class="api-key-warning">Store this key securely. It will not be shown again.</div>
+            <div class="form-actions">
+                <button class="btn btn-primary" onclick="closeKeyModal()">Done</button>
+            </div>
         </div>
     </div>
 
     <script>
         const API_BASE = window.location.origin;
 
-        function getTenantID() {
-            return document.getElementById('tenant').value || 'default';
+        // ==================== PAGE NAVIGATION ====================
+
+        function switchPage(page) {
+            document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.getElementById('page-' + page).classList.add('active');
+            event.target.classList.add('active');
+
+            if (page === 'dashboard') loadDashboard();
+            if (page === 'tenants') loadTenants();
+            if (page === 'agents') loadAllAgents();
         }
 
-        async function fetchJSON(url) {
+        // ==================== HELPERS ====================
+
+        async function fetchJSON(url, opts) {
             try {
-                const resp = await fetch(url);
-                if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                const resp = await fetch(url, opts);
+                if (!resp.ok) {
+                    const body = await resp.text();
+                    throw new Error(body || `HTTP ${resp.status}`);
+                }
                 return await resp.json();
             } catch (err) {
                 console.error('Fetch error:', err);
@@ -190,14 +334,10 @@
             return Math.round(n).toLocaleString();
         }
 
-        function formatCost(n) {
-            return '$' + n.toFixed(4);
-        }
+        function formatCost(n) { return '$' + n.toFixed(4); }
 
         function timeAgo(dateStr) {
-            const now = new Date();
-            const date = new Date(dateStr);
-            const diff = Math.floor((now - date) / 1000);
+            const diff = Math.floor((new Date() - new Date(dateStr)) / 1000);
             if (diff < 60) return diff + 's ago';
             if (diff < 3600) return Math.floor(diff / 60) + 'm ago';
             if (diff < 86400) return Math.floor(diff / 3600) + 'h ago';
@@ -205,13 +345,21 @@
         }
 
         function formatTime(dateStr) {
-            const d = new Date(dateStr);
-            return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+            return new Date(dateStr).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
         }
 
-        async function loadAgents() {
-            const tenantID = getTenantID();
-            const data = await fetchJSON(`${API_BASE}/api/v1/agents?tenant_id=${tenantID}`);
+        function formatDate(dateStr) {
+            return new Date(dateStr).toLocaleDateString([], { year: 'numeric', month: 'short', day: 'numeric' });
+        }
+
+        function planBadge(plan) {
+            return `<span class="plan ${plan}">${plan}</span>`;
+        }
+
+        // ==================== DASHBOARD PAGE ====================
+
+        async function loadDashboardAgents() {
+            const data = await fetchJSON(`${API_BASE}/api/v1/agents?tenant_id=default`);
             const tbody = document.getElementById('agents-table');
 
             if (!data || !data.agents || data.agents.length === 0) {
@@ -227,10 +375,10 @@
 
             tbody.innerHTML = data.agents.map(a => `
                 <tr>
-                    <td><strong>${a.agent_id}</strong></td>
+                    <td><strong>${esc(a.agent_id)}</strong></td>
                     <td><span class="status ${a.active ? 'active' : 'inactive'}">${a.active ? 'Active' : 'Inactive'}</span></td>
-                    <td>${a.provider || '-'}</td>
-                    <td>${a.model || '-'}</td>
+                    <td>${esc(a.provider || '-')}</td>
+                    <td>${esc(a.model || '-')}</td>
                     <td>${formatNumber(a.request_count)}</td>
                     <td>${timeAgo(a.last_seen_at)}</td>
                 </tr>
@@ -238,12 +386,10 @@
         }
 
         async function loadMetrics() {
-            const tenantID = getTenantID();
             const now = new Date();
             const from = new Date(now - 24 * 60 * 60 * 1000).toISOString();
             const to = now.toISOString();
-
-            const data = await fetchJSON(`${API_BASE}/api/v1/metrics/summary?tenant_id=${tenantID}&from=${from}&to=${to}`);
+            const data = await fetchJSON(`${API_BASE}/api/v1/metrics/summary?tenant_id=default&from=${from}&to=${to}`);
             const tbody = document.getElementById('cost-table');
 
             if (!data || !data.breakdown || data.breakdown.length === 0) {
@@ -257,22 +403,20 @@
             document.getElementById('total-cost').textContent = formatCost(data.total_cost_usd);
             document.getElementById('total-tokens').textContent = formatNumber(data.total_input_tokens + data.total_output_tokens);
 
-            const totalLatency = data.breakdown.reduce((sum, b) => sum + b.avg_latency_ms, 0);
-            const avgLatency = totalLatency / data.breakdown.length;
-            document.getElementById('avg-latency').textContent = Math.round(avgLatency) + 'ms';
-
+            const totalLatency = data.breakdown.reduce((s, b) => s + b.avg_latency_ms, 0);
+            document.getElementById('avg-latency').textContent = Math.round(totalLatency / data.breakdown.length) + 'ms';
             const maxCost = Math.max(...data.breakdown.map(b => b.total_cost_usd));
 
             tbody.innerHTML = data.breakdown.map(b => `
                 <tr>
-                    <td><strong>${b.agent_id}</strong></td>
-                    <td>${b.model}</td>
+                    <td><strong>${esc(b.agent_id)}</strong></td>
+                    <td>${esc(b.model)}</td>
                     <td>${formatNumber(b.request_count)}</td>
                     <td>${formatNumber(b.total_input_tokens)}</td>
                     <td>${formatNumber(b.total_output_tokens)}</td>
                     <td>
                         ${formatCost(b.total_cost_usd)}
-                        <div class="cost-bar"><div class="cost-bar-fill" style="width: ${maxCost > 0 ? (b.total_cost_usd / maxCost * 100) : 0}%"></div></div>
+                        <div class="cost-bar"><div class="cost-bar-fill" style="width:${maxCost > 0 ? (b.total_cost_usd / maxCost * 100) : 0}%"></div></div>
                     </td>
                     <td>${Math.round(b.avg_latency_ms)}ms</td>
                 </tr>
@@ -280,8 +424,7 @@
         }
 
         async function loadAuditLogs() {
-            const tenantID = getTenantID();
-            const data = await fetchJSON(`${API_BASE}/api/v1/audit?tenant_id=${tenantID}&limit=20`);
+            const data = await fetchJSON(`${API_BASE}/api/v1/audit?tenant_id=default&limit=20`);
             const tbody = document.getElementById('audit-table');
 
             if (!data || !data.logs || data.logs.length === 0) {
@@ -291,13 +434,12 @@
             }
 
             document.getElementById('audit-count').textContent = `${data.logs.length} entries`;
-
             tbody.innerHTML = data.logs.map(l => `
                 <tr>
                     <td>${formatTime(l.timestamp)}</td>
-                    <td>${l.agent_id}</td>
-                    <td>${l.provider}</td>
-                    <td>${l.model}</td>
+                    <td>${esc(l.agent_id)}</td>
+                    <td>${esc(l.provider)}</td>
+                    <td>${esc(l.model)}</td>
                     <td>${formatNumber(l.input_tokens)} / ${formatNumber(l.output_tokens)}</td>
                     <td>${formatCost(l.cost_usd)}</td>
                     <td>${l.latency_ms}ms</td>
@@ -307,17 +449,202 @@
         }
 
         async function loadDashboard() {
-            await Promise.all([loadAgents(), loadMetrics(), loadAuditLogs()]);
+            await Promise.all([loadDashboardAgents(), loadMetrics(), loadAuditLogs()]);
         }
 
-        // Auto-refresh every 30 seconds
-        loadDashboard();
-        setInterval(loadDashboard, 30000);
+        // ==================== TENANTS PAGE ====================
 
-        // Load on Enter key in tenant input
-        document.getElementById('tenant').addEventListener('keydown', (e) => {
-            if (e.key === 'Enter') loadDashboard();
-        });
+        async function loadTenants() {
+            const data = await fetchJSON(`${API_BASE}/api/v1/tenants`);
+            const tbody = document.getElementById('tenants-table');
+
+            if (!data || !data.tenants || data.tenants.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="5" class="empty">No tenants yet. Click "+ New Tenant" to create one.</td></tr>';
+                return;
+            }
+
+            tbody.innerHTML = data.tenants.map(t => `
+                <tr>
+                    <td><strong>${esc(t.name)}</strong><br><span style="color:#484f58;font-size:11px">${t.id}</span></td>
+                    <td>${planBadge(t.plan)}</td>
+                    <td>${formatDate(t.created_at)}</td>
+                    <td>${formatDate(t.updated_at)}</td>
+                    <td>
+                        <div class="actions">
+                            <button class="btn btn-secondary btn-sm" onclick="editTenant('${t.id}','${esc(t.name)}','${t.plan}')">Edit</button>
+                            <button class="btn btn-secondary btn-sm" onclick="rotateTenantKey('${t.id}')">Rotate Key</button>
+                            <button class="btn btn-danger btn-sm" onclick="confirmDeleteTenant('${t.id}','${esc(t.name)}')">Delete</button>
+                        </div>
+                    </td>
+                </tr>
+            `).join('');
+        }
+
+        function showTenantModal(id, name, plan) {
+            document.getElementById('tenant-edit-id').value = id || '';
+            document.getElementById('tenant-name').value = name || '';
+            document.getElementById('tenant-plan').value = plan || 'free';
+            document.getElementById('tenant-modal-title').textContent = id ? 'Edit Tenant' : 'New Tenant';
+            document.getElementById('tenant-save-btn').textContent = id ? 'Save' : 'Create';
+            document.getElementById('tenant-api-key-result').style.display = 'none';
+            document.getElementById('tenant-modal').classList.add('show');
+            document.getElementById('tenant-name').focus();
+        }
+
+        function closeTenantModal() {
+            document.getElementById('tenant-modal').classList.remove('show');
+        }
+
+        function editTenant(id, name, plan) {
+            showTenantModal(id, name, plan);
+        }
+
+        async function saveTenant() {
+            const id = document.getElementById('tenant-edit-id').value;
+            const name = document.getElementById('tenant-name').value.trim();
+            const plan = document.getElementById('tenant-plan').value;
+
+            if (!name) { alert('Name is required'); return; }
+
+            if (id) {
+                // Update
+                await fetchJSON(`${API_BASE}/api/v1/tenants/${id}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name, plan }),
+                });
+                closeTenantModal();
+                loadTenants();
+            } else {
+                // Create
+                const data = await fetchJSON(`${API_BASE}/api/v1/tenants`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name, plan }),
+                });
+                if (data && data.api_key) {
+                    document.getElementById('tenant-api-key-value').textContent = data.api_key;
+                    document.getElementById('tenant-api-key-result').style.display = 'block';
+                    document.getElementById('tenant-save-btn').style.display = 'none';
+                    loadTenants();
+                }
+            }
+        }
+
+        async function rotateTenantKey(id) {
+            const data = await fetchJSON(`${API_BASE}/api/v1/tenants/${id}/rotate-key`, { method: 'POST' });
+            if (data && data.api_key) {
+                document.getElementById('rotated-key-value').textContent = data.api_key;
+                document.getElementById('key-modal').classList.add('show');
+            }
+        }
+
+        function closeKeyModal() {
+            document.getElementById('key-modal').classList.remove('show');
+        }
+
+        function confirmDeleteTenant(id, name) {
+            document.getElementById('confirm-title').textContent = 'Delete Tenant';
+            document.getElementById('confirm-message').textContent = `Are you sure you want to delete tenant "${name}"? This action cannot be undone.`;
+            document.getElementById('confirm-action-btn').onclick = async () => {
+                await fetchJSON(`${API_BASE}/api/v1/tenants/${id}`, { method: 'DELETE' });
+                closeConfirmModal();
+                loadTenants();
+            };
+            document.getElementById('confirm-modal').classList.add('show');
+        }
+
+        function closeConfirmModal() {
+            document.getElementById('confirm-modal').classList.remove('show');
+        }
+
+        // ==================== AGENTS PAGE ====================
+
+        async function loadAllAgents() {
+            const data = await fetchJSON(`${API_BASE}/api/v1/agents/all`);
+            const tbody = document.getElementById('all-agents-table');
+
+            if (!data || !data.agents || data.agents.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="9" class="empty">No agents discovered yet</td></tr>';
+                document.getElementById('all-agent-count').textContent = '0 agents';
+                return;
+            }
+
+            document.getElementById('all-agent-count').textContent = `${data.total} agents`;
+
+            tbody.innerHTML = data.agents.map(a => `
+                <tr>
+                    <td><strong>${esc(a.agent_id)}</strong><br><span style="color:#484f58;font-size:11px">${a.id}</span></td>
+                    <td>${esc(a.name || '-')}</td>
+                    <td>${esc(a.tenant_id)}${a.linked ? ' <span class="status active">Linked</span>' : ' <span class="status inactive">Unlinked</span>'}</td>
+                    <td><span class="status ${a.active ? 'active' : 'inactive'}">${a.active ? 'Active' : 'Inactive'}</span></td>
+                    <td>${esc(a.provider || '-')}</td>
+                    <td>${esc(a.model || '-')}</td>
+                    <td>${formatNumber(a.request_count)}</td>
+                    <td>${timeAgo(a.last_seen_at)}</td>
+                    <td>
+                        <div class="actions">
+                            <button class="btn btn-secondary btn-sm" onclick="showAgentEditModal('${a.id}','${esc(a.name)}','${a.status}')">Edit</button>
+                            <button class="btn btn-danger btn-sm" onclick="confirmDeleteAgent('${a.id}','${esc(a.agent_id)}')">Delete</button>
+                        </div>
+                    </td>
+                </tr>
+            `).join('');
+        }
+
+        function showAgentEditModal(id, name, status) {
+            document.getElementById('agent-edit-id').value = id;
+            document.getElementById('agent-name').value = name || '';
+            document.getElementById('agent-status').value = status || 'active';
+            document.getElementById('agent-modal').classList.add('show');
+            document.getElementById('agent-name').focus();
+        }
+
+        function closeAgentModal() {
+            document.getElementById('agent-modal').classList.remove('show');
+        }
+
+        async function saveAgent() {
+            const id = document.getElementById('agent-edit-id').value;
+            const name = document.getElementById('agent-name').value.trim();
+            const status = document.getElementById('agent-status').value;
+
+            await fetchJSON(`${API_BASE}/api/v1/agents/${id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name, status }),
+            });
+            closeAgentModal();
+            loadAllAgents();
+        }
+
+        function confirmDeleteAgent(id, agentId) {
+            document.getElementById('confirm-title').textContent = 'Delete Agent';
+            document.getElementById('confirm-message').textContent = `Are you sure you want to delete agent "${agentId}"? This action cannot be undone.`;
+            document.getElementById('confirm-action-btn').onclick = async () => {
+                await fetchJSON(`${API_BASE}/api/v1/agents/${id}`, { method: 'DELETE' });
+                closeConfirmModal();
+                loadAllAgents();
+            };
+            document.getElementById('confirm-modal').classList.add('show');
+        }
+
+        // ==================== XSS PREVENTION ====================
+
+        function esc(s) {
+            if (!s) return '';
+            const d = document.createElement('div');
+            d.textContent = s;
+            return d.innerHTML;
+        }
+
+        // ==================== INIT ====================
+
+        loadDashboard();
+        setInterval(() => {
+            const activePage = document.querySelector('.page.active');
+            if (activePage.id === 'page-dashboard') loadDashboard();
+        }, 30000);
     </script>
 </body>
 </html>
